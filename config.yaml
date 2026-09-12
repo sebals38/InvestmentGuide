@@ -1,0 +1,48 @@
+# ─────────────────────────────────────────────────────────────
+# 투자 프레임워크 대시보드 설정 (v0.1 스켈레톤)
+# 1층(생존 규칙)과 2층(국면 지표)의 "설정값"은 전부 이 파일에만 둡니다.
+# 규칙을 바꾸고 싶으면 코드가 아니라 이 파일을 수정 → 변경 이력이 남습니다.
+# ─────────────────────────────────────────────────────────────
+
+account:
+  base_currency: KRW
+  # 계좌 총액은 리포트 생성 시 --equity 인자로 넘기거나 아래에 적습니다 (선택)
+  equity: null
+
+# ── 1층: 생존 규칙 (시장 상황과 무관하게 고정) ────────────────
+# ※ 아래 숫자는 "초안"입니다. 합의 후 확정합니다.
+rules:
+  max_account_drawdown_pct: 15      # 계좌 고점 대비 이 이상 빠지면 → 신규 진입 중단, 전부 재점검
+  soft_drawdown_pct: 8              # 이 지점부터 신규 포지션 리스크 절반으로
+  risk_per_trade_pct: 1.0           # 단일 포지션에서 손절까지 잃을 수 있는 계좌 비율 (%)
+  risk_per_trade_pct_derivatives: 0.5   # 선물·옵션은 별도 상한
+  max_open_risk_pct: 6              # 모든 열린 포지션의 손절 리스크 합계 상한
+  max_correlated_positions: 3       # 같은 테마/자산군에 동시 보유 가능한 포지션 수
+  kelly_fraction: 0.25              # 계산된 켈리 비율의 몇 배까지 쓸지 (1/4 켈리)
+  min_reward_risk: 2.0              # 진입 시 요구하는 최소 보상/위험 비율 (튜더 존스는 5:1)
+  rule_change_cooldown_days: 30     # 규칙 변경은 최소 이 기간 이후, 그리고 손실 중에는 금지
+
+# ── 2층: 국면 지표 (매일 갱신) ───────────────────────────────
+# 첫 버전은 10개 이내로 시작. group 별로 리포트에 묶여서 표시됩니다.
+indicators:
+  - {ticker: "^GSPC",    name: "S&P 500",        group: "글로벌 주식"}
+  - {ticker: "^NDX",     name: "NASDAQ 100",     group: "글로벌 주식"}
+  - {ticker: "^KS11",    name: "KOSPI",          group: "국내 주식"}
+  - {ticker: "^KQ11",    name: "KOSDAQ",         group: "국내 주식"}
+  - {ticker: "^VIX",     name: "VIX",            group: "변동성",  kind: "vol"}
+  - {ticker: "DX-Y.NYB", name: "달러 인덱스",     group: "유동성/금리"}
+  - {ticker: "^TNX",     name: "미 10년물 금리",  group: "유동성/금리", kind: "rate"}
+  - {ticker: "KRW=X",    name: "USD/KRW",        group: "유동성/금리"}
+  - {ticker: "GC=F",     name: "금 선물",         group: "원자재"}
+  - {ticker: "CL=F",     name: "WTI 원유 선물",   group: "원자재"}
+
+# 추세 판단 파라미터 (추세추종 계열의 표준값)
+trend:
+  long_ma: 200
+  short_ma: 50
+  momentum_days: 120        # 약 6개월 수익률
+  vol_window: 20            # 실현변동성 계산 기간 (거래일)
+
+output:
+  html_path: "report/dashboard.html"
+  history_csv: "report/history.csv"   # 매일의 국면 판정을 누적 (나중에 규칙 검증용)
