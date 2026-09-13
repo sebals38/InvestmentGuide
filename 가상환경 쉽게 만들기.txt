@@ -1,0 +1,11 @@
+python -m venv .venv
+
+.\.venv\Scripts\Activate.ps1
+
+pip freeze > requirements.txt : 가상환경에 설치된 모든 패키지와 정확한 버전 정보가 requirements.txt 파일로 생성됩니다.
+
+pip install -r requirements.txt : 새로운 환경이나 다른 컴퓨터에서 동일한 패키지 환경을 구축할 때 실행합니다.
+
+	저장 확인: requirements.txt 파일이 제대로 작성되었는지 확인하려면 cat requirements.txt (Mac/Linux) 또는 type requirements.txt (Windows)를 터미널에 입력해 봅니다.
+
+	설치 확인: pip list를 입력하여 목록의 패키지들이 정상적으로 설치되었는지 확인합니다.

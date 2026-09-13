@@ -1,0 +1,72 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>투자 프레임워크 대시보드 — 2026-09-11</title><style>
+:root{--bg:#f6f7f9;--card:#fff;--ink:#1a1d23;--muted:#6b7280;--line:#e5e7eb;--ok:#16a34a;--warn:#d97706;--bad:#dc2626;--info:#2563eb}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.55 -apple-system,"Malgun Gothic","Apple SD Gothic Neo",Segoe UI,Roboto,sans-serif}
+.wrap{max-width:1040px;margin:0 auto;padding:24px 16px 48px}
+h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:28px 0 10px;color:#374151}
+.sub{color:var(--muted);font-size:12px;margin-bottom:18px}
+.hero{display:grid;grid-template-columns:1.3fr 1fr 1fr 1fr;gap:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+.regime{color:#fff;border:0}.regime .big{font-size:26px;font-weight:700;line-height:1.2}.regime .small{opacity:.9;font-size:12px;margin-top:6px}
+.kpi .lbl{color:var(--muted);font-size:12px}.kpi .val{font-size:26px;font-weight:700}.kpi .note{color:var(--muted);font-size:12px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.th .name{font-weight:600}.th .val{font-size:22px;font-weight:700;margin:2px 0}.th .rule{color:var(--muted);font-size:12px}
+.pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600}
+.on{background:#fee2e2;color:var(--bad)}.off{background:#dcfce7;color:var(--ok)}.neutral{background:#e5e7eb;color:#374151}.warn{background:#fef3c7;color:var(--warn)}
+table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+th,td{padding:8px 10px;text-align:right;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
+th{background:#f3f4f6;color:#374151;font-weight:600;font-size:12px}td:first-child,th:first-child{text-align:left}
+.pos{color:var(--ok)}.neg{color:var(--bad)}
+.ladder{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.step{padding:4px 10px;border-radius:6px;background:#e5e7eb;font-size:12px}.step.done{background:#dbeafe;color:var(--info);font-weight:600}
+ul.rules{margin:0;padding-left:18px}ul.rules li{margin:3px 0}
+.foot{color:var(--muted);font-size:12px;margin-top:28px}
+@media(max-width:720px){.hero,.grid3{grid-template-columns:1fr}}
+</style></head><body><div class="wrap">
+<h1>투자 프레임워크 대시보드 <span style="font-weight:400;color:var(--muted)">v0.2</span></h1>
+<div class="sub">기준일 2026-09-11 (미국 종가) · 생성 2026-09-13 16:05 · 데이터: Yahoo Finance + FRED</div>
+
+<h2>1. 오늘의 국면과 목표 노출</h2>
+<div class="hero">
+<div class="card regime" style="background:#16a34a"><div class="small">현재 국면</div><div class="big">일반 상승</div>
+<div class="small">온도계 점수 0/3 (5일 평균 0.0) · S&amp;P500 200일선 대비 +7.0%</div></div>
+<div class="card kpi"><div class="lbl">총 노출 상한 (미국/글로벌)</div><div class="val">65%</div><div class="note">나머지는 현금(≤2년 채권·MMF)</div></div>
+<div class="card kpi"><div class="lbl">국내 노출 상한</div><div class="val">65%</div><div class="note">KOSPI 200일선·환율로 조정</div></div>
+<div class="card kpi"><div class="lbl">트레이딩 버킷</div><div class="val">20%</div><div class="note">평시 20% / 충격 10%</div></div>
+</div>
+
+<h2>2. 핵심 온도계 3개 (미국 → 국면 결정)</h2>
+<div class="grid3"><div class="card th"><div class="name">추세 <span class="rule">— S&P500 vs 200일선</span></div>
+<div class="val">+6.9%</div><div class="rule">기준: 200일선 아래</div><span class="pill off">정상</span></div><div class="card th"><div class="name">공포 <span class="rule">— VIX</span></div>
+<div class="val">15.8</div><div class="rule">기준: &gt;= 25</div><span class="pill off">정상</span></div><div class="card th"><div class="name">신용 <span class="rule">— 하이일드 스프레드</span></div>
+<div class="val">2.70%p</div><div class="rule">기준: &gt;= 5.0 %p</div><span class="pill off">정상</span></div></div>
+
+<h2>3. 안정화 조건과 노출 사다리</h2>
+<div class="card"><ul class="rules"><li>VIX < 25 <span class="pill off">충족</span></li><li>VIX < 20일 평균 <span class="rule">(15.8 vs 15.4)</span> <span class="pill off">충족</span></li><li>HY 스프레드 축소 중 <span class="rule">(2.70 vs 2.68)</span> <span class="pill off">충족</span></li></ul><div style="margin:10px 0 6px"><div class="ladder"><span class="step done">30%</span> → <span class="step ">35%</span> → <span class="step ">40%</span> → <span class="step ">45%</span> → <span class="step ">50%</span> → <span class="step ">55%</span> → <span class="step ">60%</span> → <span class="step ">65%</span> → <span class="step ">70%</span></div></div><div class="rule" style="color:var(--muted);font-size:12px">충격·안정화 국면에서만 작동합니다.</div></div>
+
+<h2>4. 국내 조정 · 보조 지표 (참고, 국면을 바꾸지 않음)</h2>
+<div class="grid3">
+<div class="card"><div class="kpi"><div class="lbl">KOSPI vs 200일선</div><div class="val pos">+11.9%</div>
+<div class="note">200일선 위 — 조정 없음</div></div></div>
+<div class="card"><div class="kpi"><div class="lbl">USD/KRW 20일 변화</div><div class="val neg">-4.8%</div>
+<div class="note"><span class="pill off">정상</span> 참고용 (국면 변경 없음)</div></div></div>
+<div class="card"><div class="kpi"><div class="lbl">MOVE (채권 변동성)</div><div class="val">82</div>
+<div class="note"><span class="pill off">정상</span> 보조 지표</div></div></div>
+</div>
+
+<h2>5. 참고 패널</h2>
+<table><thead><tr><th>지표</th><th>종가</th><th>1일</th><th>20일</th><th>vs 200일선</th></tr></thead><tbody><tr><td>S&P 500</td><td>7,657</td><td class='pos'>+0.9%</td><td class='neg'>-1.8%</td><td class='pos'>+6.9%</td></tr><tr><td>NASDAQ 100</td><td>29,368</td><td class='pos'>+0.9%</td><td class='neg'>-2.4%</td><td class='pos'>+8.3%</td></tr><tr><td>KOSPI</td><td>6,910</td><td class='neg'>-1.8%</td><td class='pos'>+1.4%</td><td class='pos'>+11.9%</td></tr><tr><td>KOSDAQ</td><td>820.64</td><td class='neg'>-1.9%</td><td class='neg'>-4.7%</td><td class='neg'>-17.4%</td></tr><tr><td>VIX</td><td>15.84</td><td class='neg'>-11.2%</td><td class='pos'>+8.3%</td><td class='neg'>-12.6%</td></tr><tr><td>MOVE</td><td>82.21</td><td class='pos'>+0.1%</td><td class='pos'>+18.7%</td><td class='pos'>+13.9%</td></tr><tr><td>HY 스프레드 (%p)</td><td>2.70</td><td class=''>+0.0%</td><td class='neg'>-0.4%</td><td class='neg'>-5.0%</td></tr><tr><td>미 10년물 (%)</td><td>4.97</td><td class='pos'>+0.6%</td><td class='pos'>+7.2%</td><td class='pos'>+13.7%</td></tr><tr><td>달러 인덱스</td><td>99.12</td><td class='pos'>+0.0%</td><td class='neg'>-0.8%</td><td class='neg'>-0.0%</td></tr><tr><td>USD/KRW</td><td>1,348</td><td class='pos'>+0.7%</td><td class='neg'>-4.8%</td><td class='neg'>-8.1%</td></tr><tr><td>금 선물</td><td>4,409</td><td class='pos'>+1.0%</td><td class='pos'>+1.0%</td><td class='neg'>-2.6%</td></tr><tr><td>WTI 원유</td><td>100.05</td><td class='neg'>-2.4%</td><td class='pos'>+23.1%</td><td class='pos'>+25.7%</td></tr></tbody></table>
+
+<h2>6. 최근 30일 판정</h2>
+<table><thead><tr><th>날짜</th><th style="text-align:left">국면</th><th>노출(미)</th><th>노출(국내)</th><th>점수 raw/5일</th><th>VIX</th><th>HY</th><th>S&amp;P vs 200일</th><th>안정화</th></tr></thead><tbody><tr><td>2026-09-11</td><td style='color:#16a34a;font-weight:600;text-align:left'>일반 상승</td><td>65%</td><td>65%</td><td>0 / 0.0</td><td>15.8</td><td>2.70</td><td>+6.9%</td><td>3</td></tr><tr><td>2026-09-10</td><td style='color:#16a34a;font-weight:600;text-align:left'>일반 상승</td><td>65%</td><td>65%</td><td>0 / 0.0</td><td>17.8</td><td>2.70</td><td>+6.1%</td><td>3</td></tr><tr><td>2026-09-09</td><td style='color:#16a34a;font-weight:600;text-align:left'>일반 상승</td><td>65%</td><td>65%</td><td>0 / 0.0</td><td>16.5</td><td>2.71</td><td>+6.8%</td><td>3</td></tr><tr><td>2026-09-08</td><td style='color:#16a34a;font-weight:600;text-align:left'>일반 상승</td><td>65%</td><td>65%</td><td>0 / 0.0</td><td>15.7</td><td>2.67</td><td>+7.4%</td><td>3</td></tr><tr><td>2026-09-04</td><td style='color:#16a34a;font-weight:600;text-align:left'>일반 상승</td><td>65%</td><td>65%</td><td>0 / 0.0</td><td>14.5</td><td>2.68</td><td>+8.1%</td><td>3</td></tr><tr><td>2026-09-03</td><td style='color:#16a34a;font-weight:600;text-align:left'>일반 상승</td><td>65%</td><td>65%</td><td>0 / 0.0</td><td>14.3</td><td>2.65</td><td>+8.6%</td><td>3</td></tr><tr><td>2026-09-02</td><td style='color:#16a34a;font-weight:600;text-align:left'>일반 상승</td><td>65%</td><td>65%</td><td>0 / 0.0</td><td>15.2</td><td>2.66</td><td>+7.5%</td><td>3</td></tr><tr><td>2026-09-01</td><td style='color:#16a34a;font-weight:600;text-align:left'>일반 상승</td><td>65%</td><td>65%</td><td>0 / 0.0</td><td>16.3</td><td>2.65</td><td>+7.1%</td><td>3</td></tr><tr><td>2026-08-31</td><td style='color:#16a34a;font-weight:600;text-align:left'>일반 상승</td><td>65%</td><td>65%</td><td>0 / 0.0</td><td>14.9</td><td>2.63</td><td>+7.9%</td><td>3</td></tr><tr><td>2026-08-28</td><td style='color:#16a34a;font-weight:600;text-align:left'>일반 상승</td><td>65%</td><td>65%</td><td>0 / 0.0</td><td>14.4</td><td>2.60</td><td>+8.3%</td><td>3</td></tr><tr><td>2026-08-27</td><td style='color:#16a34a;font-weight:600;text-align:left'>일반 상승</td><td>65%</td><td>65%</td><td>0 / 0.0</td><td>14.5</td><td>2.63</td><td>+8.7%</td><td>3</td></tr><tr><td>2026-08-26</td><td style='color:#16a34a;font-weight:600;text-align:left'>일반 상승</td><td>65%</td><td>65%</td><td>0 / 0.0</td><td>15.2</td><td>2.67</td><td>+8.0%</td><td>3</td></tr><tr><td>2026-08-25</td><td style='color:#16a34a;font-weight:600;text-align:left'>일반 상승</td><td>65%</td><td>65%</td><td>0 / 0.0</td><td>15.4</td><td>2.70</td><td>+8.1%</td><td>3</td></tr><tr><td>2026-08-24</td><td style='color:#16a34a;font-weight:600;text-align:left'>일반 상승</td><td>65%</td><td>65%</td><td>0 / 0.0</td><td>15.9</td><td>2.69</td><td>+7.8%</td><td>3</td></tr><tr><td>2026-08-21</td><td style='color:#16a34a;font-weight:600;text-align:left'>일반 상승</td><td>65%</td><td>65%</td><td>0 / 0.0</td><td>15.1</td><td>2.70</td><td>+8.2%</td><td>3</td></tr><tr><td>2026-08-20</td><td style='color:#16a34a;font-weight:600;text-align:left'>일반 상승</td><td>65%</td><td>50%</td><td>0 / 0.0</td><td>16.0</td><td>2.75</td><td>+7.7%</td><td>3</td></tr><tr><td>2026-08-19</td><td style='color:#16a34a;font-weight:600;text-align:left'>일반 상승</td><td>65%</td><td>50%</td><td>0 / 0.0</td><td>14.9</td><td>2.73</td><td>+8.8%</td><td>3</td></tr><tr><td>2026-08-18</td><td style='color:#16a34a;font-weight:600;text-align:left'>일반 상승</td><td>65%</td><td>50%</td><td>0 / 0.0</td><td>15.8</td><td>2.75</td><td>+8.6%</td><td>3</td></tr><tr><td>2026-08-17</td><td style='color:#16a34a;font-weight:600;text-align:left'>일반 상승</td><td>65%</td><td>65%</td><td>0 / 0.0</td><td>15.2</td><td>2.70</td><td>+9.4%</td><td>3</td></tr><tr><td>2026-08-14</td><td style='color:#16a34a;font-weight:600;text-align:left'>일반 상승</td><td>65%</td><td>65%</td><td>0 / 0.0</td><td>14.2</td><td>2.67</td><td>+10.0%</td><td>3</td></tr><tr><td>2026-08-13</td><td style='color:#16a34a;font-weight:600;text-align:left'>일반 상승</td><td>65%</td><td>65%</td><td>0 / 0.0</td><td>14.6</td><td>2.71</td><td>+10.3%</td><td>3</td></tr><tr><td>2026-08-12</td><td style='color:#16a34a;font-weight:600;text-align:left'>일반 상승</td><td>65%</td><td>65%</td><td>0 / 0.0</td><td>14.6</td><td>2.71</td><td>+9.7%</td><td>3</td></tr><tr><td>2026-08-11</td><td style='color:#16a34a;font-weight:600;text-align:left'>일반 상승</td><td>65%</td><td>65%</td><td>0 / 0.0</td><td>15.3</td><td>2.72</td><td>+9.5%</td><td>3</td></tr><tr><td>2026-08-10</td><td style='color:#16a34a;font-weight:600;text-align:left'>일반 상승</td><td>65%</td><td>65%</td><td>0 / 0.0</td><td>15.5</td><td>2.70</td><td>+9.9%</td><td>3</td></tr><tr><td>2026-08-07</td><td style='color:#16a34a;font-weight:600;text-align:left'>일반 상승</td><td>65%</td><td>65%</td><td>0 / 0.0</td><td>14.9</td><td>2.70</td><td>+10.0%</td><td>3</td></tr><tr><td>2026-08-06</td><td style='color:#16a34a;font-weight:600;text-align:left'>일반 상승</td><td>65%</td><td>65%</td><td>0 / 0.0</td><td>15.1</td><td>2.71</td><td>+9.4%</td><td>3</td></tr><tr><td>2026-08-05</td><td style='color:#16a34a;font-weight:600;text-align:left'>일반 상승</td><td>65%</td><td>65%</td><td>0 / 0.0</td><td>15.8</td><td>2.75</td><td>+9.7%</td><td>3</td></tr><tr><td>2026-08-04</td><td style='color:#16a34a;font-weight:600;text-align:left'>일반 상승</td><td>65%</td><td>65%</td><td>0 / 0.0</td><td>16.5</td><td>2.73</td><td>+10.0%</td><td>3</td></tr><tr><td>2026-08-03</td><td style='color:#16a34a;font-weight:600;text-align:left'>일반 상승</td><td>65%</td><td>65%</td><td>0 / 0.0</td><td>15.9</td><td>2.78</td><td>+8.1%</td><td>3</td></tr><tr><td>2026-07-31</td><td style='color:#16a34a;font-weight:600;text-align:left'>일반 상승</td><td>65%</td><td>65%</td><td>0 / 0.0</td><td>16.0</td><td>2.85</td><td>+6.6%</td><td>3</td></tr></tbody></table>
+
+<h2>7. 1층 생존 규칙 (고정)</h2>
+<div class="card"><ul class="rules">
+<li>포지션별 고정 손절 <b>10%</b> — 충격이라고 넓히지 않는다</li>
+<li>단일 포지션 비중 상한 <b>15%</b> → 실수 1건의 손실 = 계좌의 1~1.5%</li>
+<li>계좌 고점 대비 <b>-15%</b> 에서 어떤 경우에도 신규 진입 중단·전면 재점검 (경고선 -8%)</li>
+<li>현금 정의: 만기 2년 이하 채권·MMF 만 현금으로 인정. 장기채는 포지션(비중 상한·손절 적용)</li>
+<li>국면별 총 노출 상한: 과열 50% · 일반 상승 65% · 충격 30% · 안정화 최대 70%</li>
+<li>규칙 변경은 30일 간격, 손실 중에는 금지 (변경은 config.yaml + CHANGELOG.md)</li>
+</ul></div>
+<div class="foot">이 페이지는 판단 보조용입니다. 매수·매도 결정은 본인이 합니다. 소스: github.com/sebals38/InvestmentGuide</div>
+</div></body></html>

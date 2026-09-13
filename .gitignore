@@ -1,0 +1,18 @@
+# 가상환경
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# 로컬 전용 (계좌 숫자 포함 — 공개 저장소에 올리지 않음)
+local/
+account.yaml
+fred_api_key.txt
+
+# 임시/캐시
+.cache/
+*.log
+.DS_Store
+Thumbs.db
+
+# docs/ report/ data/ 는 GitHub Actions 가 매일 커밋하므로 제외하지 않음

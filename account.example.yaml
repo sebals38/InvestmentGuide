@@ -1,0 +1,4 @@
+# 내 PC 전용. 이 파일을 account.yaml 로 복사해서 쓰면 dashboard.py 가 자동으로 읽어
+# local/dashboard.html 에 1층(계좌 손실 한도) 판정을 추가합니다. account.yaml 은 git 에 올라가지 않습니다.
+equity: 50000000     # 계좌 총액 (원)
+peak: 55000000       # 계좌 고점 (원) — 고점 대비 -8% 경고, -15% 신규 진입 중단

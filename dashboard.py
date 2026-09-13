@@ -1,278 +1,314 @@
 #!/usr/bin/env python3
 """
-투자 프레임워크 대시보드 v0.1 (스켈레톤)
+dashboard.py — 매일 실행: 데이터 수집 → 국면 판정 → HTML + history.csv
 
 사용법:
-    pip install yfinance pandas pyyaml
-    python dashboard.py                 # 실데이터 (Yahoo Finance)
-    python dashboard.py --demo          # 네트워크 없이 합성 데이터로 레이아웃 확인
-    python dashboard.py --equity 50000000 --peak 55000000   # 계좌 현재값/고점 넣으면 1층 규칙 판정
+    python dashboard.py                    # 실데이터 → docs/index.html (공개용, 계좌 숫자 없음)
+    python dashboard.py --demo             # 네트워크 없이 합성 데이터
+    python dashboard.py --equity 50000000 --peak 55000000
+                                           # 계좌 값을 주면 local/dashboard.html 에 1층 판정 추가 (git 제외)
+    python dashboard.py --no-refresh       # 수집 생략, data/market.csv 캐시로만 실행
 
-구조:
-    config.yaml  → 규칙·지표 설정 (숫자는 전부 여기)
-    dashboard.py → 데이터 수집 → 지표 계산 → 국면 판정 → HTML 렌더
-    report/      → dashboard.html (매일 덮어씀), history.csv (누적)
+GitHub Actions 는 매일 `python dashboard.py` 만 실행하고 docs/ report/ data/ 를 커밋합니다.
 """
+from __future__ import annotations
+
 import argparse
 import datetime as dt
-import math
+import html
 import os
 import sys
 
-import numpy as np
 import pandas as pd
 import yaml
+
+import data as datamod
+import engine
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
-# ─────────────────────────── 데이터 ───────────────────────────
-def fetch_prices(tickers, days=400, demo=False):
-    """종가 DataFrame (index=date, columns=ticker)을 돌려준다."""
-    if demo:
-        rng = np.random.default_rng(7)
-        idx = pd.bdate_range(end=dt.date.today(), periods=days)
-        days = len(idx)
-        data = {}
-        for i, t in enumerate(tickers):
-            drift = rng.normal(0.0003, 0.0002)
-            vol = 0.006 + 0.004 * (i % 4)
-            path = 100 * np.exp(np.cumsum(rng.normal(drift, vol, days)))
-            data[t] = path
-        return pd.DataFrame(data, index=idx)
-
-    import yfinance as yf
-    raw = yf.download(tickers, period=f"{days + 30}d", progress=False, auto_adjust=False)
-    close = raw["Close"] if isinstance(raw.columns, pd.MultiIndex) else raw[["Close"]]
-    if isinstance(close, pd.Series):
-        close = close.to_frame(tickers[0])
-    return close.dropna(how="all").ffill()
+def _p(path: str) -> str:
+    return path if os.path.isabs(path) else os.path.join(HERE, path)
 
 
-# ─────────────────────────── 지표 ───────────────────────────
-def compute_metrics(close: pd.Series, cfg_trend: dict, kind: str = "price") -> dict:
-    """한 자산의 국면 지표. kind: price | vol | rate"""
-    s = close.dropna()
-    if len(s) < cfg_trend["long_ma"] + 5:
-        return {"error": f"데이터 부족 ({len(s)}일)"}
-    last = float(s.iloc[-1])
-    ma_l = float(s.rolling(cfg_trend["long_ma"]).mean().iloc[-1])
-    ma_s = float(s.rolling(cfg_trend["short_ma"]).mean().iloc[-1])
-    mom = last / float(s.iloc[-cfg_trend["momentum_days"]]) - 1
-    ret = np.log(s).diff().dropna()
-    rv = float(ret.tail(cfg_trend["vol_window"]).std() * math.sqrt(252))
-    rv_1y = ret.tail(252).rolling(cfg_trend["vol_window"]).std() * math.sqrt(252)
-    vol_pctile = float((rv_1y < rv).mean())  # 최근 1년 대비 현재 변동성 백분위
-    dd = last / float(s.tail(252).max()) - 1
-    chg_1d = last / float(s.iloc[-2]) - 1
-    chg_1w = last / float(s.iloc[-6]) - 1
-
-    # 추세 상태: 가격 vs 200일선 & 50일선 정렬
-    if kind == "price":
-        if last > ma_l and ma_s > ma_l:
-            state = "상승추세"
-        elif last < ma_l and ma_s < ma_l:
-            state = "하락추세"
-        else:
-            state = "중립/전환"
-    elif kind == "vol":  # VIX: 높을수록 위험
-        state = "공포" if last > 25 else ("경계" if last > 18 else "안정")
-    else:  # rate: 200일선 위면 긴축 압력
-        state = "상승" if last > ma_l else "하락"
-
-    return dict(
-        last=last, ma50=ma_s, ma200=ma_l, dist_ma200=last / ma_l - 1,
-        momentum=mom, rvol=rv, vol_pctile=vol_pctile, dd_52w=dd,
-        chg_1d=chg_1d, chg_1w=chg_1w, state=state,
-    )
+def load_cfg(path="config.yaml") -> dict:
+    with open(_p(path), encoding="utf-8") as fh:
+        return yaml.safe_load(fh)
 
 
-def risk_budget(rows: list[dict]) -> dict:
-    """2층 요약: 위험자산 중 상승추세 비율과 VIX로 리스크 예산 산출 (초안 로직)."""
-    price_rows = [r for r in rows if r.get("kind", "price") == "price" and "state" in r
-                  and r["group"] in ("글로벌 주식", "국내 주식")]
-    up = sum(r["state"] == "상승추세" for r in price_rows)
-    breadth = up / len(price_rows) if price_rows else float("nan")
-    vix_rows = [r for r in rows if r.get("kind") == "vol" and "last" in r]
-    vix = vix_rows[0]["last"] if vix_rows else float("nan")
+# ─────────────────────────── history ───────────────────────────
+HISTORY_COLS = [
+    "date", "regime", "freeze", "exposure_us", "exposure_kr", "trading_bucket",
+    "score_raw", "score_s", "spx_dist", "vix", "hy", "move",
+    "stab_n", "ladder_days", "kr_below_ma", "fx_warn", "source",
+]
 
-    if breadth >= 0.75 and (math.isnan(vix) or vix < 20):
-        level, mult = "정상", 1.00
-    elif breadth >= 0.5 and (math.isnan(vix) or vix < 25):
-        level, mult = "축소", 0.50
+
+def append_history(res: pd.DataFrame, cfg: dict, source: str) -> pd.DataFrame:
+    path = _p(cfg["output"]["history_csv"])
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    r = res.iloc[-1]
+    row = {
+        "date": res.index[-1].strftime("%Y-%m-%d"), "regime": r["regime"], "freeze": int(r["freeze"]),
+        "exposure_us": r["exposure_us"], "exposure_kr": r["exposure_kr"], "trading_bucket": r["trading_bucket"],
+        "score_raw": int(r["score_raw"]), "score_s": round(float(r["score_s"]), 2),
+        "spx_dist": round(float(r["spx_dist"]) * 100, 2), "vix": round(float(r["vix"]), 2),
+        "hy": round(float(r["hy"]), 2), "move": round(float(r["move"]), 1) if pd.notna(r["move"]) else "",
+        "stab_n": int(r["stab_n"]), "ladder_days": int(r["ladder_days"]),
+        "kr_below_ma": int(r["kr_below_ma"]), "fx_warn": int(r["fx_warn"]), "source": source,
+    }
+    new = pd.DataFrame([row], columns=HISTORY_COLS)
+
+    if os.path.exists(path):
+        old = pd.read_csv(path, encoding="utf-8-sig")
+        if list(old.columns) != HISTORY_COLS:  # v0.1 스키마면 백업 후 새로 시작
+            old.to_csv(path.replace(".csv", "_v01.csv"), index=False, encoding="utf-8-sig")
+            old = pd.DataFrame(columns=HISTORY_COLS)
+        old = old[old["date"] != row["date"]]  # 같은 날 재실행이면 덮어씀
+        hist = pd.concat([old, new], ignore_index=True)
     else:
-        level, mult = "방어", 0.25
-    return dict(breadth=breadth, vix=vix, level=level, multiplier=mult)
-
-
-def survival_check(rules: dict, equity, peak) -> dict:
-    """1층 판정: 계좌 낙폭에 따른 규칙 발동."""
-    if not equity or not peak:
-        return {"status": "미입력", "dd": None, "note": "--equity / --peak 를 넘기면 계좌 낙폭 규칙을 판정합니다."}
-    dd = equity / peak - 1
-    if dd <= -rules["max_account_drawdown_pct"] / 100:
-        return {"status": "정지", "dd": dd, "note": "최대 낙폭 도달 → 신규 진입 금지, 전 포지션 재점검"}
-    if dd <= -rules["soft_drawdown_pct"] / 100:
-        return {"status": "감속", "dd": dd, "note": "소프트 한도 → 신규 포지션 리스크 50%"}
-    return {"status": "정상", "dd": dd, "note": "규칙 범위 내"}
+        hist = new
+    hist = hist.sort_values("date")
+    hist.to_csv(path, index=False, encoding="utf-8-sig")
+    return hist
 
 
 # ─────────────────────────── HTML ───────────────────────────
 CSS = """
-:root{--bg:#f7f7f5;--card:#fff;--ink:#1d1d1b;--muted:#6b6b66;--line:#e4e4df;
---up:#1f7a4d;--dn:#b23a3a;--mid:#8a6d1f;--acc:#2c4f8f}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);
-font:14px/1.5 -apple-system,"Malgun Gothic","Apple SD Gothic Neo",sans-serif;padding:24px}
-h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:24px 0 8px;color:var(--muted);font-weight:600}
-.meta{color:var(--muted);font-size:12px}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px}
-.card .k{font-size:12px;color:var(--muted)}.card .v{font-size:24px;font-weight:700;margin:2px 0}
-.card .s{font-size:12px;color:var(--muted)}
+:root{--bg:#f6f7f9;--card:#fff;--ink:#1a1d23;--muted:#6b7280;--line:#e5e7eb;--ok:#16a34a;--warn:#d97706;--bad:#dc2626;--info:#2563eb}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.55 -apple-system,"Malgun Gothic","Apple SD Gothic Neo",Segoe UI,Roboto,sans-serif}
+.wrap{max-width:1040px;margin:0 auto;padding:24px 16px 48px}
+h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:28px 0 10px;color:#374151}
+.sub{color:var(--muted);font-size:12px;margin-bottom:18px}
+.hero{display:grid;grid-template-columns:1.3fr 1fr 1fr 1fr;gap:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+.regime{color:#fff;border:0}.regime .big{font-size:26px;font-weight:700;line-height:1.2}.regime .small{opacity:.9;font-size:12px;margin-top:6px}
+.kpi .lbl{color:var(--muted);font-size:12px}.kpi .val{font-size:26px;font-weight:700}.kpi .note{color:var(--muted);font-size:12px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.th .name{font-weight:600}.th .val{font-size:22px;font-weight:700;margin:2px 0}.th .rule{color:var(--muted);font-size:12px}
+.pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600}
+.on{background:#fee2e2;color:var(--bad)}.off{background:#dcfce7;color:var(--ok)}.neutral{background:#e5e7eb;color:#374151}.warn{background:#fef3c7;color:var(--warn)}
 table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden}
-th,td{padding:8px 10px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
-th{font-size:12px;color:var(--muted);font-weight:600;background:#fafaf8}
-td:first-child,th:first-child{text-align:left}
-tr.group td{background:#f2f2ee;font-weight:600;text-align:left;color:var(--muted);font-size:12px}
-.pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600;color:#fff}
-.up{background:var(--up)}.dn{background:var(--dn)}.mid{background:var(--mid)}.acc{background:var(--acc)}
-.pos{color:var(--up)}.neg{color:var(--dn)}
-.rules{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:6px 20px;font-size:13px}
-.rules div{display:flex;justify-content:space-between;border-bottom:1px dashed var(--line);padding:4px 0}
-.rules b{font-variant-numeric:tabular-nums}
-.wrap{overflow-x:auto}
-footer{margin-top:28px;color:var(--muted);font-size:12px}
+th,td{padding:8px 10px;text-align:right;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
+th{background:#f3f4f6;color:#374151;font-weight:600;font-size:12px}td:first-child,th:first-child{text-align:left}
+.pos{color:var(--ok)}.neg{color:var(--bad)}
+.ladder{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.step{padding:4px 10px;border-radius:6px;background:#e5e7eb;font-size:12px}.step.done{background:#dbeafe;color:var(--info);font-weight:600}
+ul.rules{margin:0;padding-left:18px}ul.rules li{margin:3px 0}
+.foot{color:var(--muted);font-size:12px;margin-top:28px}
+@media(max-width:720px){.hero,.grid3{grid-template-columns:1fr}}
 """
 
-PILL = {"상승추세": "up", "하락추세": "dn", "중립/전환": "mid", "안정": "up", "경계": "mid", "공포": "dn",
-        "상승": "mid", "하락": "acc", "정상": "up", "축소": "mid", "방어": "dn", "감속": "mid", "정지": "dn", "미입력": "acc"}
 
-
-def pct(x, d=1, sign=True):
-    if x is None or (isinstance(x, float) and math.isnan(x)):
+def _pct(v, digits=1, plus=True):
+    if v is None or pd.isna(v):
         return "–"
-    s = f"{x*100:+.{d}f}%" if sign else f"{x*100:.{d}f}%"
+    s = f"{v * 100:+.{digits}f}%" if plus else f"{v * 100:.{digits}f}%"
     return s
 
 
-def cls(x):
-    return "pos" if x > 0 else ("neg" if x < 0 else "")
+def _cls(v):
+    if v is None or pd.isna(v):
+        return ""
+    return "pos" if v > 0 else "neg" if v < 0 else ""
 
 
-def render(cfg, rows, budget, surv, asof, demo):
-    r = cfg["rules"]
-    rule_items = [
-        ("계좌 최대 낙폭 한도", f"{r['max_account_drawdown_pct']}%"),
-        ("소프트 낙폭 (리스크 반감)", f"{r['soft_drawdown_pct']}%"),
-        ("포지션당 리스크 (현물)", f"{r['risk_per_trade_pct']}%"),
-        ("포지션당 리스크 (선물·옵션)", f"{r['risk_per_trade_pct_derivatives']}%"),
-        ("열린 리스크 합계 상한", f"{r['max_open_risk_pct']}%"),
-        ("동일 테마 동시 보유", f"{r['max_correlated_positions']}개"),
-        ("켈리 분수", f"{r['kelly_fraction']:.2f} × Kelly"),
-        ("최소 보상/위험", f"{r['min_reward_risk']:.1f} : 1"),
-        ("규칙 변경 냉각기간", f"{r['rule_change_cooldown_days']}일"),
-    ]
-    eff_risk = r["risk_per_trade_pct"] * budget["multiplier"] * (0.5 if surv["status"] == "감속" else 1.0)
-    if surv["status"] == "정지":
-        eff_risk = 0.0
+def render_html(snap: dict, res: pd.DataFrame, m: pd.DataFrame, cfg: dict, source: str,
+                account: dict | None = None) -> str:
+    ex = cfg["exposure"]
+    rules = cfg["rules"]
+    color = engine.REGIME_COLOR[snap["regime"]]
+    now = dt.datetime.now().strftime("%Y-%m-%d %H:%M")
+    src_label = {"live": "Yahoo Finance + FRED", "cache": "캐시(data/market.csv) — 수집 실패", "demo": "합성 데모 데이터"}[source]
 
-    h = [f"<!doctype html><html lang='ko'><head><meta charset='utf-8'><title>투자 대시보드</title>"
-         f"<meta name='viewport' content='width=device-width,initial-scale=1'><style>{CSS}</style></head><body>",
-         f"<h1>투자 프레임워크 대시보드 <span class='meta'>v0.1</span></h1>",
-         f"<div class='meta'>기준일 {asof} · {'합성 데이터(데모)' if demo else 'Yahoo Finance'} · 매매 판단은 직접, 이 화면은 위험 예산만 말해줍니다</div>"]
+    def pill(on, on_txt="경고", off_txt="정상", on_cls="on", off_cls="off"):
+        return f'<span class="pill {on_cls if on else off_cls}">{on_txt if on else off_txt}</span>'
 
-    # 상단 요약
-    h.append("<h2>오늘의 위험 예산</h2><div class='grid'>")
-    h.append(f"<div class='card'><div class='k'>2층 국면 판정</div><div class='v'><span class='pill {PILL[budget['level']]}'>{budget['level']}</span></div>"
-             f"<div class='s'>주식 지수 상승추세 비율 {pct(budget['breadth'],0,False)} · VIX {budget['vix']:.1f}</div></div>")
-    h.append(f"<div class='card'><div class='k'>1층 계좌 낙폭 규칙</div><div class='v'><span class='pill {PILL[surv['status']]}'>{surv['status']}</span></div>"
-             f"<div class='s'>{('고점 대비 ' + pct(surv['dd'])) if surv['dd'] is not None else ''} {surv['note']}</div></div>")
-    h.append(f"<div class='card'><div class='k'>오늘 신규 포지션당 허용 리스크 (현물)</div><div class='v'>{eff_risk:.2f}%</div>"
-             f"<div class='s'>기본 {r['risk_per_trade_pct']}% × 국면 {budget['multiplier']:.2f}"
-             f"{' × 낙폭 0.5' if surv['status']=='감속' else ''}</div></div>")
-    h.append("</div>")
+    # 온도계
+    th_cards = ""
+    for t in snap["thermometers"]:
+        th_cards += f"""<div class="card th"><div class="name">{t['name']} <span class="rule">— {t['desc']}</span></div>
+<div class="val">{t['value']}</div><div class="rule">기준: {html.escape(t['rule'])}</div>{pill(t['on'])}</div>"""
 
-    # 국면 지표 테이블
-    h.append("<h2>2층 · 국면 지표</h2><div class='wrap'><table><thead><tr>"
-             "<th>지표</th><th>현재</th><th>1일</th><th>1주</th><th>200일선 대비</th><th>6개월 모멘텀</th>"
-             "<th>52주 고점 대비</th><th>실현변동성(20d)</th><th>변동성 백분위(1y)</th><th>상태</th></tr></thead><tbody>")
-    cur = None
-    for row in rows:
-        if row["group"] != cur:
-            cur = row["group"]
-            h.append(f"<tr class='group'><td colspan='10'>{cur}</td></tr>")
-        if "error" in row:
-            h.append(f"<tr><td>{row['name']}</td><td colspan='9' style='text-align:left;color:var(--muted)'>{row['error']}</td></tr>")
+    # 안정화 조건 + 사다리
+    stab_rows = ""
+    for c in snap["stabilization"]:
+        det = f' <span class="rule">({c["detail"]})</span>' if c.get("detail") else ""
+        stab_rows += f"<li>{c['rule']}{det} {pill(not c['ok'], '미충족', '충족')}</li>"
+    steps = [f'<span class="step {"done" if i <= snap["ladder_step"] else ""}">{int(ex["shock"] + cfg["regime"]["ladder_step_pct"] * i)}%</span>'
+             for i in range(0, int((ex["stabilized_max"] - ex["shock"]) / cfg["regime"]["ladder_step_pct"]) + 1)]
+    ladder_html = '<div class="ladder">' + " → ".join(steps) + "</div>"
+    ladder_note = ""
+    if snap["regime"] in ("shock", "stabilized"):
+        ladder_note = (f"확인된 안정화 조건 {snap['stab_n']}/3, 3개 모두 유지 {snap['ladder_days']}일째. "
+                       f"사다리는 {cfg['regime']['ladder_up_interval_days']}거래일에 한 칸(+{cfg['regime']['ladder_step_pct']}%p)만 올리고, "
+                       f"안정화 후에는 {cfg['regime']['ladder_days_per_step']}일마다 한 칸 추가. 내려갈 땐 즉시.")
+    else:
+        ladder_note = "충격·안정화 국면에서만 작동합니다."
+
+    # 국내·보조
+    kr = snap["kr"]
+    aux = snap["aux"]
+    kr_html = f"""<div class="grid3">
+<div class="card"><div class="kpi"><div class="lbl">KOSPI vs 200일선</div><div class="val {_cls(kr['kospi_dist'])}">{_pct(kr['kospi_dist'])}</div>
+<div class="note">{'200일선 아래 → 국내 노출 -' + str(cfg['korea']['below_ma_penalty_pct']) + '%p' if kr['below_ma'] else ('과열(+' + str(cfg['korea']['overheat_pct']) + '% 이상) → 국내 상한 ' + str(ex['overheated']) + '%' if kr['overheat'] else '200일선 위 — 조정 없음')}</div></div></div>
+<div class="card"><div class="kpi"><div class="lbl">USD/KRW {cfg['korea']['fx']['change_days']}일 변화</div><div class="val {_cls(kr['fx_chg'])}">{_pct(kr['fx_chg'])}</div>
+<div class="note">{pill(kr['fx_warn'], '원화 급약세 경고', '정상', 'warn')} 참고용 (국면 변경 없음)</div></div></div>
+<div class="card"><div class="kpi"><div class="lbl">MOVE (채권 변동성)</div><div class="val">{'–' if aux['move'] is None else f"{aux['move']:.0f}"}</div>
+<div class="note">{pill(aux['move_warn'], '장기채 위험 ≥' + str(cfg['auxiliary']['move_warn']), '정상', 'warn')} 보조 지표</div></div></div>
+</div>"""
+
+    # 참고 패널
+    ref_rows = ""
+    for item in cfg["reference"]:
+        k = item["key"]
+        if k not in m.columns:
             continue
-        h.append(
-            f"<tr><td>{row['name']} <span class='meta'>{row['ticker']}</span></td>"
-            f"<td>{row['last']:,.2f}</td>"
-            f"<td class='{cls(row['chg_1d'])}'>{pct(row['chg_1d'])}</td>"
-            f"<td class='{cls(row['chg_1w'])}'>{pct(row['chg_1w'])}</td>"
-            f"<td class='{cls(row['dist_ma200'])}'>{pct(row['dist_ma200'])}</td>"
-            f"<td class='{cls(row['momentum'])}'>{pct(row['momentum'])}</td>"
-            f"<td class='neg'>{pct(row['dd_52w'])}</td>"
-            f"<td>{pct(row['rvol'],0,False)}</td>"
-            f"<td>{pct(row['vol_pctile'],0,False)}</td>"
-            f"<td><span class='pill {PILL.get(row['state'],'acc')}'>{row['state']}</span></td></tr>")
-    h.append("</tbody></table></div>")
+        s = m[k].dropna()
+        if len(s) < 2:
+            continue
+        last = float(s.iloc[-1])
+        d1 = s.iloc[-1] / s.iloc[-2] - 1 if len(s) > 1 else None
+        d20 = s.iloc[-1] / s.iloc[-21] - 1 if len(s) > 21 else None
+        ma200 = s.rolling(200).mean().iloc[-1] if len(s) >= 200 else None
+        dma = last / ma200 - 1 if ma200 and pd.notna(ma200) else None
+        fmt = f"{last:,.2f}" if last < 1000 else f"{last:,.0f}"
+        ref_rows += (f"<tr><td>{item['name']}</td><td>{fmt}</td>"
+                     f"<td class='{_cls(d1)}'>{_pct(d1)}</td><td class='{_cls(d20)}'>{_pct(d20)}</td>"
+                     f"<td class='{_cls(dma)}'>{_pct(dma)}</td></tr>")
 
-    # 1층 규칙 패널
-    h.append("<h2>1층 · 생존 규칙 (고정값, config.yaml)</h2><div class='card'><div class='rules'>")
-    for k, v in rule_items:
-        h.append(f"<div><span>{k}</span><b>{v}</b></div>")
-    h.append("</div></div>")
+    # 최근 30일 판정
+    hist_rows = ""
+    for d, r in res.tail(30).iloc[::-1].iterrows():
+        hist_rows += (f"<tr><td>{d.strftime('%Y-%m-%d')}</td>"
+                      f"<td style='color:{engine.REGIME_COLOR[r['regime']]};font-weight:600;text-align:left'>{engine.REGIME_KO[r['regime']]}</td>"
+                      f"<td>{r['exposure_us']:.0f}%</td><td>{r['exposure_kr']:.0f}%</td>"
+                      f"<td>{int(r['score_raw'])} / {r['score_s']:.1f}</td><td>{r['vix']:.1f}</td><td>{r['hy']:.2f}</td>"
+                      f"<td>{r['spx_dist'] * 100:+.1f}%</td><td>{int(r['stab_n'])}</td></tr>")
 
-    # 3층 자리
-    h.append("<h2>3층 · 진입 체크리스트 / 매매일지</h2><div class='card meta'>다음 단계에서 붙입니다. "
-             "(진입 근거 · 무효화 조건 · 손절가 · 목표가 · 보상/위험 · 포지션 크기 계산기)</div>")
-    h.append("<footer>규칙은 손실 중에 바꾸지 않는다. 바꾸려면 냉각기간이 지난 뒤, 수익 중일 때, 기록을 남기고.</footer>")
-    h.append("</body></html>")
-    return "\n".join(h)
+    # 계좌 (로컬 전용)
+    acct_html = ""
+    if account and account.get("equity"):
+        eq = float(account["equity"])
+        peak = float(account.get("peak") or eq)
+        dd = eq / peak - 1
+        hard = -rules["account_drawdown_stop_pct"] / 100
+        soft = -rules["account_soft_drawdown_pct"] / 100
+        status = ("<b style='color:var(--bad)'>손실 한도 도달 — 신규 진입 중단·전면 재점검</b>" if dd <= hard
+                  else "<b style='color:var(--warn)'>경고선 — 신규 리스크 절반</b>" if dd <= soft
+                  else "<b style='color:var(--ok)'>정상</b>")
+        acct_html = f"""<h2>0. 내 계좌 (로컬 전용 — 공개 페이지에는 없음)</h2>
+<div class="grid3">
+<div class="card kpi"><div class="lbl">계좌 총액</div><div class="val">{eq:,.0f}</div><div class="note">고점 {peak:,.0f}</div></div>
+<div class="card kpi"><div class="lbl">고점 대비</div><div class="val {_cls(dd)}">{_pct(dd)}</div><div class="note">경고 {soft*100:.0f}% / 한도 {hard*100:.0f}%</div></div>
+<div class="card kpi"><div class="lbl">1층 판정</div><div class="val" style="font-size:16px">{status}</div>
+<div class="note">목표 노출 {snap['exposure_us']:.0f}% = {eq * snap['exposure_us'] / 100:,.0f} / 포지션당 상한 {rules['position_weight_cap_pct']}% = {eq * rules['position_weight_cap_pct'] / 100:,.0f}</div></div>
+</div>"""
+
+    bd = snap["breadth"]
+    breadth_html = (f'<div class="card" style="margin-bottom:12px;font-size:13px"><b>시장 폭</b> — 동일가중/시총가중 S&amp;P {cfg.get("breadth",{}).get("ratio_days",60)}일 변화 '
+                    f'<b class="{_cls(bd["rsp_spy_chg"])}">{_pct(bd["rsp_spy_chg"])}</b>, S&amp;P500 고점 근처: {"예" if bd["near_high"] else "아니오"}'
+                    f'{" · 소수 종목이 지수를 떠받치는 중" if bd["warn"] else ""}'
+                    f'<span style="color:var(--muted)"> (참고 전용. 2004~2026 검증에서 앞서는 힘 미미 — 행동 근거 아님)</span></div>')
+    changed = "" if snap["regime"] == snap["regime_prev"] else f' <span class="pill warn">전일 {engine.REGIME_KO[snap["regime_prev"]]} → 변경</span>'
+    freeze_html = ""
+    if snap["freeze"]:
+        freeze_html = (f'<div class="card" style="border-color:var(--warn);background:#fffbeb;margin-top:12px">'
+                       f'<b style="color:var(--warn)">동결 중</b> — 최근 {cfg["regime"]["freeze_days"]}거래일 안에 VIX 가 {cfg["regime"]["freeze_vix"]} 을 넘었습니다. '
+                       f'국면은 바꾸지 않습니다. <b>신규 매수 금지, 트레이딩 버킷 {ex["trading_bucket"]["shock"]}%</b>. '
+                       f'실제 축소는 5일 평균 점수가 {cfg["regime"]["shock_score"]} 을 넘길 때만.</div>')
+    elif snap["regime"] == "shock":
+        freeze_html = (f'<div class="card" style="margin-top:12px;color:var(--muted);font-size:12px">충격 {snap["shock_age"]}일째 '
+                       f'(최소 {cfg["regime"]["min_shock_days"]}일 유지 후 안정화 조건 3개가 확인되면 전환). 신규 매수 금지.</div>')
+
+    return f"""<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>투자 프레임워크 대시보드 — {snap['date']}</title><style>{CSS}</style></head><body><div class="wrap">
+<h1>투자 프레임워크 대시보드 <span style="font-weight:400;color:var(--muted)">v{cfg['version']}</span></h1>
+<div class="sub">기준일 {snap['date']} (미국 종가) · 생성 {now} · 데이터: {src_label}</div>
+{acct_html}
+<h2>1. 오늘의 국면과 목표 노출</h2>
+<div class="hero">
+<div class="card regime" style="background:{color}"><div class="small">현재 국면{changed}</div><div class="big">{snap['regime_ko']}</div>
+<div class="small">온도계 점수 {snap['score_raw']}/3 (5일 평균 {snap['score_s']:.1f}) · S&amp;P500 200일선 대비 {_pct(snap['overheat_dist'])}</div></div>
+<div class="card kpi"><div class="lbl">총 노출 상한 (미국/글로벌)</div><div class="val">{snap['exposure_us']:.0f}%</div><div class="note">나머지는 현금(≤2년 채권·MMF)</div></div>
+<div class="card kpi"><div class="lbl">국내 노출 상한</div><div class="val">{snap['exposure_kr']:.0f}%</div><div class="note">KOSPI 200일선·환율로 조정</div></div>
+<div class="card kpi"><div class="lbl">트레이딩 버킷</div><div class="val">{snap['trading_bucket']:.0f}%</div><div class="note">평시 {ex['trading_bucket']['normal']}% / 충격·동결 {ex['trading_bucket']['shock']}%</div></div>
+</div>
+{freeze_html}
+
+<h2>2. 핵심 온도계 3개 (미국 → 국면 결정)</h2>
+<div class="grid3">{th_cards}</div>
+
+<h2>3. 안정화 조건과 노출 사다리</h2>
+<div class="card"><ul class="rules">{stab_rows}</ul><div style="margin:10px 0 6px">{ladder_html}</div><div class="rule" style="color:var(--muted);font-size:12px">{ladder_note}</div></div>
+
+<h2>4. 국내 조정 · 보조 지표 (참고, 국면을 바꾸지 않음)</h2>
+{kr_html}
+
+<h2>5. 참고 패널</h2>
+{breadth_html}
+<table><thead><tr><th>지표</th><th>종가</th><th>1일</th><th>20일</th><th>vs 200일선</th></tr></thead><tbody>{ref_rows}</tbody></table>
+
+<h2>6. 최근 30일 판정</h2>
+<table><thead><tr><th>날짜</th><th style="text-align:left">국면</th><th>노출(미)</th><th>노출(국내)</th><th>점수 raw/5일</th><th>VIX</th><th>신용</th><th>S&amp;P vs 200일</th><th>안정화</th></tr></thead><tbody>{hist_rows}</tbody></table>
+
+<h2>7. 1층 생존 규칙 (고정)</h2>
+<div class="card"><ul class="rules">
+<li>포지션별 고정 손절 <b>{rules['position_stop_pct']}%</b> — 충격이라고 넓히지 않는다</li>
+<li>단일 포지션 비중 상한 <b>{rules['position_weight_cap_pct']}%</b> → 실수 1건의 손실 = 계좌의 1~1.5%</li>
+<li>계좌 고점 대비 <b>-{rules['account_drawdown_stop_pct']}%</b> 에서 어떤 경우에도 신규 진입 중단·전면 재점검 (경고선 -{rules['account_soft_drawdown_pct']}%)</li>
+<li>현금 정의: {rules['cash_definition']}</li>
+<li>국면별 총 노출 상한: 과열 {ex['overheated']}% · 일반 상승 {ex['uptrend']}% · 충격 {ex['shock']}% · 안정화 최대 {ex['stabilized_max']}%</li>
+<li>규칙 변경은 {rules['rule_change_cooldown_days']}일 간격, 손실 중에는 금지 (변경은 config.yaml + CHANGELOG.md)</li>
+</ul></div>
+<div class="foot">이 페이지는 판단 보조용입니다. 매수·매도 결정은 본인이 합니다. 소스: github.com/sebals38/InvestmentGuide</div>
+</div></body></html>"""
 
 
 # ─────────────────────────── main ───────────────────────────
-def main():
+def main(argv=None):
     ap = argparse.ArgumentParser()
-    ap.add_argument("--config", default=os.path.join(HERE, "config.yaml"))
-    ap.add_argument("--demo", action="store_true", help="네트워크 없이 합성 데이터로 실행")
-    ap.add_argument("--equity", type=float, help="현재 계좌 평가액")
-    ap.add_argument("--peak", type=float, help="계좌 역사적 고점 평가액")
-    a = ap.parse_args()
+    ap.add_argument("--demo", action="store_true", help="합성 데이터")
+    ap.add_argument("--no-refresh", action="store_true", help="수집 생략, 캐시 사용")
+    ap.add_argument("--equity", type=float, help="계좌 총액 (로컬 HTML 에만 반영)")
+    ap.add_argument("--peak", type=float, help="계좌 고점")
+    ap.add_argument("--no-history", action="store_true", help="history.csv 에 기록하지 않음")
+    args = ap.parse_args(argv)
 
-    with open(a.config, encoding="utf-8") as f:
-        cfg = yaml.safe_load(f)
+    cfg = load_cfg()
+    m, source = datamod.load_market(cfg, demo=args.demo, refresh=not args.no_refresh)
+    res = engine.run(m, cfg)
+    snap = engine.snapshot(res, cfg)
 
-    inds = cfg["indicators"]
-    tickers = [i["ticker"] for i in inds]
-    close = fetch_prices(tickers, demo=a.demo)
+    # 공개 페이지 (계좌 숫자 없음)
+    pub = _p(cfg["output"]["public_html"])
+    os.makedirs(os.path.dirname(pub), exist_ok=True)
+    with open(pub, "w", encoding="utf-8") as fh:
+        fh.write(render_html(snap, res, m, cfg, source))
+    open(os.path.join(os.path.dirname(pub), ".nojekyll"), "a").close()
 
-    rows = []
-    for i in inds:
-        m = compute_metrics(close[i["ticker"]], cfg["trend"], i.get("kind", "price")) if i["ticker"] in close else {"error": "다운로드 실패"}
-        rows.append({**i, **m})
+    # 계좌 값이 있으면 로컬 페이지 (git 제외)
+    account = None
+    acct_file = _p("account.yaml")
+    if args.equity:
+        account = {"equity": args.equity, "peak": args.peak}
+    elif os.path.exists(acct_file):
+        with open(acct_file, encoding="utf-8") as fh:
+            account = yaml.safe_load(fh) or None
+    if account:
+        loc = _p(cfg["output"]["local_html"])
+        os.makedirs(os.path.dirname(loc), exist_ok=True)
+        with open(loc, "w", encoding="utf-8") as fh:
+            fh.write(render_html(snap, res, m, cfg, source, account))
+        print(f"로컬 페이지: {loc}")
 
-    budget = risk_budget(rows)
-    surv = survival_check(cfg["rules"], a.equity or cfg["account"].get("equity"), a.peak)
-    asof = str(close.index[-1].date())
+    if not args.no_history and source != "demo":
+        append_history(res, cfg, source)
 
-    out = os.path.join(HERE, cfg["output"]["html_path"])
-    os.makedirs(os.path.dirname(out), exist_ok=True)
-    with open(out, "w", encoding="utf-8") as f:
-        f.write(render(cfg, rows, budget, surv, asof, a.demo))
-
-    # 판정 이력 누적 (나중에 "이 규칙이 실제로 도움이 됐나" 검증용)
-    hist = os.path.join(HERE, cfg["output"]["history_csv"])
-    rec = {"date": asof, "level": budget["level"], "multiplier": budget["multiplier"],
-           "breadth": round(budget["breadth"], 3) if not math.isnan(budget["breadth"]) else None,
-           "vix": round(budget["vix"], 2) if not math.isnan(budget["vix"]) else None,
-           "account_status": surv["status"]}
-    for r_ in rows:
-        if "state" in r_:
-            rec[f"{r_['ticker']}_state"] = r_["state"]
-    pd.DataFrame([rec]).to_csv(hist, mode="a", header=not os.path.exists(hist), index=False, encoding="utf-8-sig")
-
-    print(f"[ok] {out}\n국면: {budget['level']} (multiplier {budget['multiplier']}) · 계좌: {surv['status']}")
+    print(f"[{snap['date']}] 국면: {snap['regime_ko']}{' (동결)' if snap['freeze'] else ''}  노출 미국 {snap['exposure_us']:.0f}% / 국내 {snap['exposure_kr']:.0f}%  "
+          f"점수 {snap['score_raw']}/3 (5일 {snap['score_s']:.1f})  안정화 {snap['stab_n']}/3  데이터: {source}")
+    print(f"공개 페이지: {pub}")
+    return 0
 
 
 if __name__ == "__main__":

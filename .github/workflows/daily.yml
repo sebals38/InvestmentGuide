@@ -1,0 +1,42 @@
+name: daily-dashboard
+
+on:
+  schedule:
+    # 매일 22:30 UTC = 한국 07:30 (미국 정규장 마감 후, FRED 갱신 반영)
+    - cron: "30 22 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: dashboard
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Run dashboard
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: python dashboard.py
+
+      - name: Commit results
+        run: |
+          git config user.name  "dashboard-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add docs report data
+          git diff --cached --quiet && echo "no changes" && exit 0
+          git commit -m "dashboard: $(date -u +%Y-%m-%d) [skip ci]"
+          git pull --rebase origin ${{ github.ref_name }}
+          git push

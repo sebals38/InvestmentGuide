@@ -1,0 +1,38 @@
+name: backtest
+
+on:
+  workflow_dispatch:   # Actions 탭에서 수동 실행 (config.yaml 기준을 바꿨을 때)
+
+permissions:
+  contents: write
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Run backtest
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: python backtest.py --refresh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: backtest-report
+          path: |
+            report/backtest.md
+            report/backtest.png
+            report/backtest_daily.csv
+      - name: Commit results
+        run: |
+          git config user.name  "dashboard-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add report data
+          git diff --cached --quiet && echo "no changes" && exit 0
+          git commit -m "backtest: $(date -u +%Y-%m-%d) [skip ci]"
+          git pull --rebase origin ${{ github.ref_name }}
+          git push

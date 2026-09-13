@@ -1,48 +1,149 @@
 # ─────────────────────────────────────────────────────────────
-# 투자 프레임워크 대시보드 설정 (v0.1 스켈레톤)
-# 1층(생존 규칙)과 2층(국면 지표)의 "설정값"은 전부 이 파일에만 둡니다.
-# 규칙을 바꾸고 싶으면 코드가 아니라 이 파일을 수정 → 변경 이력이 남습니다.
+# 투자 프레임워크 설정 v0.2
+#  - 1층(생존 규칙)·2층(국면 판정)의 숫자는 전부 이 파일에만 둡니다.
+#  - 규칙을 바꾸려면 코드가 아니라 이 파일을 고칩니다 → git 이력이 남습니다.
+#  - ※ 손실 중에는 규칙을 바꾸지 않는다 (1층 원칙). 변경은 CHANGELOG.md 에 기록.
 # ─────────────────────────────────────────────────────────────
 
-account:
-  base_currency: KRW
-  # 계좌 총액은 리포트 생성 시 --equity 인자로 넘기거나 아래에 적습니다 (선택)
-  equity: null
+version: "0.6"
 
-# ── 1층: 생존 규칙 (시장 상황과 무관하게 고정) ────────────────
-# ※ 아래 숫자는 "초안"입니다. 합의 후 확정합니다.
+# ── 1층: 생존 규칙 (국면과 무관하게 고정) ────────────────────
 rules:
-  max_account_drawdown_pct: 15      # 계좌 고점 대비 이 이상 빠지면 → 신규 진입 중단, 전부 재점검
-  soft_drawdown_pct: 8              # 이 지점부터 신규 포지션 리스크 절반으로
-  risk_per_trade_pct: 1.0           # 단일 포지션에서 손절까지 잃을 수 있는 계좌 비율 (%)
-  risk_per_trade_pct_derivatives: 0.5   # 선물·옵션은 별도 상한
-  max_open_risk_pct: 6              # 모든 열린 포지션의 손절 리스크 합계 상한
-  max_correlated_positions: 3       # 같은 테마/자산군에 동시 보유 가능한 포지션 수
-  kelly_fraction: 0.25              # 계산된 켈리 비율의 몇 배까지 쓸지 (1/4 켈리)
-  min_reward_risk: 2.0              # 진입 시 요구하는 최소 보상/위험 비율 (튜더 존스는 5:1)
-  rule_change_cooldown_days: 30     # 규칙 변경은 최소 이 기간 이후, 그리고 손실 중에는 금지
+  position_stop_pct: 10           # 포지션별 고정 손절 (~10%). "충격"이라고 넓히지 않는다
+  position_weight_cap_pct: 15     # 단일 포지션 비중 상한 (10~15%). 실수 1건 = 계좌 1~1.5%
+  account_drawdown_stop_pct: 15   # 계좌 고점 대비 -15% → 어떤 경우에도 신규 진입 중단·전면 재점검
+  account_soft_drawdown_pct: 8    # -8% 부터 신규 포지션 리스크 절반 (참고용 경고선)
+  cash_definition: "만기 2년 이하 채권·MMF 만 현금으로 인정. 장기채는 포지션(비중 상한·손절 적용)"
+  rule_change_cooldown_days: 30   # 규칙 변경은 최소 30일 간격, 손실 중에는 금지
 
-# ── 2층: 국면 지표 (매일 갱신) ───────────────────────────────
-# 첫 버전은 10개 이내로 시작. group 별로 리포트에 묶여서 표시됩니다.
-indicators:
-  - {ticker: "^GSPC",    name: "S&P 500",        group: "글로벌 주식"}
-  - {ticker: "^NDX",     name: "NASDAQ 100",     group: "글로벌 주식"}
-  - {ticker: "^KS11",    name: "KOSPI",          group: "국내 주식"}
-  - {ticker: "^KQ11",    name: "KOSDAQ",         group: "국내 주식"}
-  - {ticker: "^VIX",     name: "VIX",            group: "변동성",  kind: "vol"}
-  - {ticker: "DX-Y.NYB", name: "달러 인덱스",     group: "유동성/금리"}
-  - {ticker: "^TNX",     name: "미 10년물 금리",  group: "유동성/금리", kind: "rate"}
-  - {ticker: "KRW=X",    name: "USD/KRW",        group: "유동성/금리"}
-  - {ticker: "GC=F",     name: "금 선물",         group: "원자재"}
-  - {ticker: "CL=F",     name: "WTI 원유 선물",   group: "원자재"}
+# 국면별 총 노출 상한 (%). 나머지는 항상 현금(≤2년 채권·MMF 포함)
+exposure:
+  overheated: 50      # 과열 상승
+  uptrend: 65         # 일반 상승 (60~70 사이에서 논의 중 → 65로 시작, 백테스트 후 확정)
+  shock: 30           # 충격 진행
+  stabilized_max: 70  # 안정화 침체에서 사다리를 다 올랐을 때의 상한 (S&P 가 200일선 위로 올라온 뒤)
+  stabilized_below_ma_max: 50   # 안정화라도 S&P 가 아직 200일선 아래면 여기까지만 (2008년 봄 같은 약세장 반등 대비)
+  uptrend_warning_cut_pct: 10   # 일반 상승 중 온도계 1개가 켜질 때마다 -10%p (예: 1개 → 55%)
+  trading_bucket:
+    normal: 20        # 트레이딩 버킷 (총 노출과 별도로 관리하는 단기 매매분)
+    shock: 10
 
-# 추세 판단 파라미터 (추세추종 계열의 표준값)
-trend:
-  long_ma: 200
-  short_ma: 50
-  momentum_days: 120        # 약 6개월 수익률
-  vol_window: 20            # 실현변동성 계산 기간 (거래일)
+# ── 2층: 국면 판정 ────────────────────────────────────────────
+# 핵심 온도계 3개 (미국 지표가 "국면"을 정한다)
+thermometers:
+  trend:    {source: spx, rule: "200일선 아래", ma_days: 200}
+  fear:     {source: vix, rule: ">= 25", threshold: 25}
+  # 신용 온도계의 원천은 바꿀 수 있음:
+  #   baa10y = 무디스 Baa 회사채 − 미 10년물 (FRED BAA10Y, 1986년부터 전체 이력 무료)  ← 기본
+  #   hy     = ICE BofA 하이일드 OAS (FRED BAMLH0A0HYM2) — 2025년부터 FRED 가 최근 3년치만 제공해 백테스트 불가
+  credit:   {source: baa10y, rule: ">= 3.0 %p", threshold: 3.0}
+  # credit:   {source: hy, rule: ">= 5.0 %p", threshold: 5.0}
+
+regime:
+  smoothing_days: 5              # 3일 확인 규칙 대신 5일 이동평균 스무딩
+  shock_score: 1.5               # 5일 평균 점수가 이 이상이면 충격 (온도계 3개 중 2개 이상 지속)
+  # 동결(freeze): VIX 가 하루라도 이 값을 넘으면 국면은 그대로 두고 "신규 매수 금지 + 트레이딩 버킷 축소"만 건다.
+  # 실제 축소(충격)는 5일 평균 점수가 확인해 줄 때만. 동결의 비용은 0 → 틀려도 잃는 게 없다.
+  freeze_vix: 30
+  freeze_days: 5                 # 마지막으로 VIX>30 을 찍은 날부터 이 거래일수 동안 동결 유지
+  min_shock_days: 15             # 충격에 들어가면 최소 이 거래일수(≈3주)는 머문다 — 팔았다 바로 사는 것 방지
+  ladder_up_interval_days: 5     # 사다리(+5%p)는 이 거래일수에 한 칸만 올린다 (내리는 건 즉시)
+  overheat_in_pct: 12            # S&P500 이 200일선 대비 +12% 이상(5일 평균) → 과열
+  overheat_out_pct: 8            # +8% 아래로 내려오면 과열 해제 (히스테리시스)
+  uptrend_return_score: 0.5      # 안정화 침체 → 일반 상승 복귀: 5일 평균 점수 < 0.5 이고 200일선 위
+  stabilization:                 # 충격 → 안정화 전환 조건 3개 (5일 평균으로 반올림해 개수 판정)
+    - {id: vix_calming,    rule: "VIX < 25, 또는 60일 고점 대비 40% 이상 내려옴 (긴 위기 뒤 공포가 식는 중)"}
+    - {id: vix_falling,    rule: "VIX < VIX 20일 평균 (또는 VIX < 20 이면 이미 진정된 것으로 인정)"}
+    - {id: credit_narrowing, rule: "신용 스프레드 < 20일 평균 (또는 calm_override 아래면 이미 정상으로 인정)"}
+  vix_peak_days: 60              # 공포 진정 판정용 VIX 고점 탐색 기간
+  vix_off_peak_pct: 40           # 60일 고점 대비 이만큼 내려오면 '진정 중'으로 인정
+  restrike_stab_max: 0           # 안정화 국면에서 확인된 조건이 이 개수 이하로 무너지고 S&P 가 200일선 아래면 충격 복귀
+  calm_override:                 # 이미 충분히 낮으면 '하락 중' 조건을 요구하지 않음 (평온기 깜빡임 방지)
+    vix: 20
+    credit: 2.2                  # 신용 스프레드가 이 아래면 '축소 중' 조건 충족으로 인정 (baa10y 기준. hy 면 4.0)
+  ladder_step_pct: 5             # 안정화 조건 1개 확인될 때마다 +5%p (30 → 35 → 40 → 45)
+  ladder_days_per_step: 10       # 안정화 국면에 머문 10거래일마다 +5%p (최대 stabilized_max). 충격 복귀 시 처음부터
+
+# 국내 조정 (국면은 미국이 정하고, KOSPI 는 국내 노출만 조정)
+korea:
+  kospi_ma_days: 200
+  below_ma_penalty_pct: 15       # KOSPI 200일선 아래 → 국내 노출 -15%p
+  overheat_pct: 15               # KOSPI 200일선 대비 +15% 이상 → 국내 노출 과열 상한 적용
+  fx:                            # 환율 조건 (보조·참고. 기본 페널티 0 = 표시만)
+    change_days: 20
+    warn_change_pct: 3.0         # USD/KRW 20일 변화 +3% 이상 & 200일선 위 → 원화 급약세 경고
+    penalty_pct: 0
+
+# 보조 지표 (국면을 바꾸지 않음. 경고 강화·장기채 포지션 리스크 참고)
+auxiliary:
+  move_warn: 120                 # MOVE(채권 VIX) 120 이상 → 장기채 포지션 위험 경고
+  move_extreme: 150
+
+# 시장 폭 (참고 전용, 국면·노출 불변). 2004~2026 검증(점검 5) 결과 신용 엇갈림·금리 역전은 기저율과 차이 없어 제거,
+# 시장 폭만 숫자로 남겨 지켜봄 (기저율 19% vs 22% — 행동 근거는 안 됨)
+breadth:
+  near_high_pct: 3               # S&P500 이 252일 고점 대비 이 % 안이면 '고점 근처'
+  ratio_days: 60                 # 동일가중(RSP)/시총가중(SPY) 비율의 변화 측정 기간
+  ratio_drop_pct: 2.0            # 고점 근처인데 비율이 이만큼 하락 → '소수 종목이 지수를 떠받침'
+  lead_days: 60                  # 백테스트: 켜진 날 이후 이 거래일 안에 충격이 왔는지
+
+# ── 데이터 소스 ───────────────────────────────────────────────
+sources:
+  yahoo:
+    spx:    "^GSPC"
+    ndx:    "^NDX"
+    vix:    "^VIX"
+    move:   "^MOVE"
+    kospi:  "^KS11"
+    kosdaq: "^KQ11"
+    usdkrw: "KRW=X"
+    tnx:    "^TNX"
+    dxy:    "DX-Y.NYB"
+    gold:   "GC=F"
+    oil:    "CL=F"
+    rsp:    "RSP"                # S&P500 동일가중 ETF (시장 폭 측정용, 2003~)
+    spy:    "SPY"                # S&P500 시총가중 ETF
+  fred:                          # FRED_API_KEY (fred_api_key.txt) 필요
+    baa10y: "BAA10Y"             # Moody's Baa − 10y Treasury (%p), 1986~ 전체
+    hy: "BAMLH0A0HYM2"           # ICE BofA US High Yield OAS (%), 최근 3년만 (참고 패널용)
+    t10y2y: "T10Y2Y"             # 미 10년물 − 2년물 (%p), 장단기 금리차
+  start: "2000-01-01"
+
+# 참고 패널 (대시보드 하단 표)
+reference:
+  - {key: spx,    name: "S&P 500"}
+  - {key: ndx,    name: "NASDAQ 100"}
+  - {key: kospi,  name: "KOSPI"}
+  - {key: kosdaq, name: "KOSDAQ"}
+  - {key: vix,    name: "VIX"}
+  - {key: move,   name: "MOVE"}
+  - {key: baa10y, name: "Baa−10Y 스프레드 (%p)"}
+  - {key: hy,     name: "HY 스프레드 (%p, 3년치)"}
+  - {key: tnx,    name: "미 10년물 (%)"}
+  - {key: dxy,    name: "달러 인덱스"}
+  - {key: usdkrw, name: "USD/KRW"}
+  - {key: t10y2y, name: "미 10y−2y 금리차 (%p)"}
+  - {key: gold,   name: "금 선물"}
+  - {key: oil,    name: "WTI 원유"}
+
+# ── 백테스트: 과거 위기 구간 (수익률 최적화가 아니라 "상식적으로 움직였나" 점검용)
+backtest:
+  start: "2004-01-01"
+  episodes:
+    - {name: "2008 금융위기",   peak: "2007-10-09", bottom: "2009-03-09"}
+    - {name: "2011 유로 위기",  peak: "2011-04-29", bottom: "2011-10-03"}
+    - {name: "2015-16 중국/유가", peak: "2015-05-21", bottom: "2016-02-11"}
+    - {name: "2018 4분기",      peak: "2018-09-20", bottom: "2018-12-24"}
+    - {name: "2020 코로나",     peak: "2020-02-19", bottom: "2020-03-23"}
+    - {name: "2022 긴축",       peak: "2022-01-03", bottom: "2022-10-12"}
+    - {name: "2025 관세 충격",  peak: "2025-02-19", bottom: "2025-04-08"}
+  short_shock_days: 10           # 이보다 짧은 충격 판정은 "왔다갔다" 로 집계
+  freeze_followup_days: 15       # 동결 후 이 거래일수 안에 충격이 오면 "진짜 경보" 로 집계
 
 output:
-  html_path: "report/dashboard.html"
-  history_csv: "report/history.csv"   # 매일의 국면 판정을 누적 (나중에 규칙 검증용)
+  public_html: "docs/index.html"        # GitHub Pages (계좌 숫자 없음)
+  local_html: "local/dashboard.html"    # 내 PC 전용 (계좌 숫자 포함, git 제외)
+  history_csv: "report/history.csv"     # 매일 국면 판정 누적
+  market_cache: "data/market.csv"       # 원천 시계열 캐시 (매일 갱신·커밋 → 백테스트 재현용)
+  backtest_md: "report/backtest.md"
+  backtest_png: "report/backtest.png"
