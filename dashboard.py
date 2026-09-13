@@ -221,7 +221,7 @@ def render_html(snap: dict, res: pd.DataFrame, m: pd.DataFrame, cfg: dict, sourc
                  "과열" if ka["adr"] > kac.get("adr", {}).get("overheated", 120) else "중립"))
     sp_txt = "–" if ka["spread"] is None else f"{ka['spread']:.2f}%p"
     sp_note = ("ECOS 키 없음 — 미수집" if ka["spread"] is None else
-               f"20일 변화 {fmt(ka['spread_widen'], '{:+.2f}%p')} · " + ("경고 수준" if ka["spread_warn"] else "정상"))
+               f"20일 변화 {fmt(ka['spread_widen'], '{:+.2f}%p')} · " + ("확대 중 (후행 지표 — 행동 근거 아님)" if ka["spread_warn"] else "평시 수준"))
     kr_aux_html = f"""<div class="grid3">
 <div class="card kpi"><div class="lbl">국내 시장 폭 대용 (KOSDAQ/KOSPI {kac.get('breadth',{}).get('ratio_days',60)}일)</div><div class="val {_cls(ka['kq_ks_chg'])}">{_pct(ka['kq_ks_chg'])}</div>
 <div class="note">{"KOSPI 고점 근처인데 소형·성장주 이탈" if ka['breadth_warn'] else "특이 없음"}</div></div>

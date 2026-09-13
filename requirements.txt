@@ -1,11 +1,9 @@
 # 투자 프레임워크 대시보드 의존성
 # 설치:  pip install -r requirements.txt
-# (버전 하한만 고정 — 정확한 버전은 pip freeze 로 나중에 잠급니다)
 pandas>=2.2
 numpy>=1.26
 pyyaml>=6.0
 yfinance>=0.2.40
 requests>=2.31
 matplotlib>=3.8          # backtest 결과 그림용
-pandas-datareader>=0.10  # FRED (하이일드 스프레드 등)
-\npykrx>=1.0            # 국내 등락 종목수 (선택, KRX 로그인 필요)\n
+pykrx>=1.0               # 국내 등락 종목수 ADR (KRX 로그인 필요, 선택)

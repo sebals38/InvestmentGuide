@@ -211,7 +211,8 @@ def update_kr_adr(cfg: dict) -> pd.DataFrame | None:
             print(f"[경고] KRX {d.date()} 실패: {type(e).__name__} {str(e)[:120]}", file=sys.stderr)
             break
     if rows:
-        new = pd.concat([old, pd.DataFrame.from_dict(rows, orient="index")]).sort_index()
+        add = pd.DataFrame.from_dict(rows, orient="index")
+        new = (pd.concat([old, add]) if len(old) else add).sort_index()
         new.index.name = "date"
         os.makedirs(os.path.dirname(path), exist_ok=True)
         new.to_csv(path)
