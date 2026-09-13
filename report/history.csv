@@ -1,2 +1,2 @@
-﻿date,regime,exposure_us,exposure_kr,trading_bucket,score_raw,score_s,spx_dist,vix,hy,move,stab_n,ladder_days,kr_below_ma,fx_warn,source
-2026-09-11,uptrend,65.0,65.0,20.0,0,0.0,6.9,15.84,2.7,82.2,3,0,0,0,live
+﻿date,regime,freeze,exposure_us,exposure_kr,trading_bucket,score_raw,score_s,spx_dist,vix,hy,move,stab_n,ladder_days,kr_below_ma,fx_warn,source
+2026-09-11,uptrend,0,65.0,65.0,20.0,0,0.0,6.9,15.84,1.51,82.2,3,0,0,0,live
