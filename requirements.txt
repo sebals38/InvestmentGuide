@@ -8,3 +8,4 @@ yfinance>=0.2.40
 requests>=2.31
 matplotlib>=3.8          # backtest 결과 그림용
 pandas-datareader>=0.10  # FRED (하이일드 스프레드 등)
+\npykrx>=1.0            # 국내 등락 종목수 (선택, KRX 로그인 필요)\n

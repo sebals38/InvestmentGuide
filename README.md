@@ -40,6 +40,13 @@ https://fred.stlouisfed.org/docs/api/api_key.html 에서 무료 발급 → 프�
 GitHub Actions 에서는 저장소 **Settings → Secrets and variables → Actions → New repository secret** 에
 `FRED_API_KEY` 를 넣으면 워크플로가 자동으로 씁니다.
 
+### 국내 참고 지표용 키 (선택)
+
+- **ECOS (한국은행, 국내 신용 스프레드)**: https://ecos.bok.or.kr → 로그인 → 마이페이지 → 인증키 신청 (무료, 즉시) →
+  `ecos_api_key.txt` 에 한 줄로 저장. 첫 실행 로그에 항목명(예: '회사채(3년, AA-)')이 찍히니 config.yaml 의 코드가 맞는지 확인.
+- **KRX (등락 종목수 ADR)**: https://data.krx.co.kr 회원가입(무료) → `krx_login.txt` 에 첫 줄 아이디, 둘째 줄 비밀번호.
+  둘 다 없어도 대시보드는 돌아가고 해당 칸만 '미수집'으로 표시됩니다. GitHub Actions 에서는 Secrets 에 `ECOS_API_KEY`, `KRX_ID`, `KRX_PW`.
+
 ## 2. GitHub 자동화 켜기 (한 번만)
 
 1. 워크플로 파일을 제자리로 옮기고 (`setup/workflows/` 는 원격 도구가 `.github/` 에 직접 쓸 수 없어서 둔 임시 위치) 커밋·푸시:
@@ -88,5 +95,5 @@ GitHub Actions 에서는 저장소 **Settings → Secrets and variables → Acti
 ## 5. 다음 할 일
 - [ ] HY 포함 실데이터 백테스트로 기준값 확정 (shock_score 1.5, HY 5.0, min_shock_days 15, 2008년처럼 긴 충격에서 VIX<25 조건이 너무 늦지 않은지)
 - [x] 취약도 점수 검증 → 승격 없음 (시장 폭만 참고로 유지, CHANGELOG v0.6)
-- [ ] 국내 보조 지표 추가: ADR(등락비율, pykrx), 국내 신용스프레드(ECOS)
+- [x] 국내 참고 지표 추가 (v0.7). 시장 폭 대용은 앞서지 않음 확인. 신용 스프레드는 ECOS 키 후 검증, ADR 은 1년 누적 후
 - [ ] 보류된 논점: 실현이익 절반의 고위험 배분 / 트레일링 스톱 (반론 정리 후 결정)

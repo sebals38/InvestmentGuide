@@ -19,6 +19,9 @@ jobs:
       - name: Run backtest
         env:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
+          KRX_ID: ${{ secrets.KRX_ID }}
+          KRX_PW: ${{ secrets.KRX_PW }}
         run: python backtest.py --refresh
       - uses: actions/upload-artifact@v4
         with:

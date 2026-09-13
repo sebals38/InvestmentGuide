@@ -8,6 +8,8 @@ __pycache__/
 local/
 account.yaml
 fred_api_key.txt
+ecos_api_key.txt
+krx_login.txt
 
 # 임시/캐시
 .cache/

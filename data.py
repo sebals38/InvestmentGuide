@@ -91,17 +91,6 @@ def _fred_csv(sid: str, start: str) -> pd.Series:
     return _to_series(df.iloc[:, 0], df.iloc[:, 1])
 
 
-def _fred_key() -> str:
-    """환경변수 FRED_API_KEY, 없으면 프로젝트 폴더의 fred_api_key.txt (git 제외)."""
-    key = os.environ.get("FRED_API_KEY", "").strip().strip('"')
-    if not key:
-        f = _p("fred_api_key.txt")
-        if os.path.exists(f):
-            with open(f, encoding="utf-8") as fh:
-                key = fh.read().strip().strip('"')
-    return key
-
-
 def fetch_fred(series: dict, start: str) -> pd.DataFrame:
     """여러 경로를 차례로 시도해 가장 긴 이력을 쓴다. FRED_API_KEY 환경변수가 있으면 API 를 최우선."""
     key = _fred_key()
@@ -135,12 +124,116 @@ def fetch_fred(series: dict, start: str) -> pd.DataFrame:
     return pd.DataFrame(out)
 
 
+# ─────────────────────────── 한국은행 ECOS ───────────────────────────
+ECOS_URL = "https://ecos.bok.or.kr/api/StatisticSearch/{key}/json/kr/1/100000/{stat}/D/{start}/{end}/{item}"
+
+
+def _read_key(env: str, fname: str) -> str:
+    key = os.environ.get(env, "").strip().strip('"')
+    if not key:
+        f = _p(fname)
+        if os.path.exists(f):
+            with open(f, encoding="utf-8") as fh:
+                key = fh.read().strip().strip('"')
+    return key
+
+
+def _fred_key() -> str:
+    """환경변수 FRED_API_KEY, 없으면 프로젝트 폴더의 fred_api_key.txt (git 제외)."""
+    return _read_key("FRED_API_KEY", "fred_api_key.txt")
+
+
+def fetch_ecos(cfg: dict, start: str) -> pd.DataFrame:
+    """ECOS 일별 시장금리. 키가 없거나 실패하면 빈 DataFrame (참고 지표라 치명적이지 않음)."""
+    ec = cfg["sources"].get("ecos")
+    if not ec:
+        return pd.DataFrame()
+    key = _read_key("ECOS_API_KEY", "ecos_api_key.txt")
+    if not key:
+        print("[안내] ECOS_API_KEY 없음 → 국내 신용 스프레드 생략 (ecos_api_key.txt 에 키를 넣으면 수집)", file=sys.stderr)
+        return pd.DataFrame()
+    out = {}
+    for col in ("kr_govt3", "kr_corp_aa"):
+        item = ec[col]
+        url = ECOS_URL.format(key=key, stat=ec["stat"], start=start.replace("-", ""),
+                              end=dt.date.today().strftime("%Y%m%d"), item=item)
+        try:
+            r = requests.get(url, timeout=60)
+            r.raise_for_status()
+            js = r.json()
+            rows = js.get("StatisticSearch", {}).get("row")
+            if not rows:
+                raise RuntimeError(str(js)[:200])
+            name = rows[0].get("ITEM_NAME1", "?")
+            ser = pd.Series([float(x["DATA_VALUE"]) for x in rows],
+                            index=pd.to_datetime([x["TIME"] for x in rows], format="%Y%m%d"))
+            print(f"ECOS {ec['stat']}/{item} = '{name}': {len(ser)}행, {ser.index.min().date()} ~ {ser.index.max().date()}")
+            out[col] = ser
+        except Exception as e:  # noqa: BLE001
+            print(f"[경고] ECOS {col}({item}) 실패: {type(e).__name__} {str(e)[:160]}", file=sys.stderr)
+    return pd.DataFrame(out)
+
+
+# ─────────────────────────── KRX 등락 종목수 (pykrx, 누적) ───────────────────────────
+def update_kr_adr(cfg: dict) -> pd.DataFrame | None:
+    """오늘(및 최근 누락 영업일 최대 10일)의 KOSPI 상승/하락 종목수를 data/kr_adr.csv 에 누적. 실패해도 None."""
+    if not cfg["sources"].get("krx_adr"):
+        return None
+    path = _p(cfg["output"]["kr_adr_csv"])
+    # KRX 로그인 (pykrx 최신 버전은 KRX 정보데이터시스템 계정 필요)
+    if not os.environ.get("KRX_ID"):
+        f = _p("krx_login.txt")
+        if os.path.exists(f):
+            with open(f, encoding="utf-8") as fh:
+                parts = [x.strip() for x in fh.read().splitlines() if x.strip()]
+            if len(parts) >= 2:
+                os.environ["KRX_ID"], os.environ["KRX_PW"] = parts[0], parts[1]
+    try:
+        from pykrx import stock  # noqa: WPS433
+    except Exception as e:  # noqa: BLE001
+        print(f"[안내] pykrx 없음 → ADR 생략 ({e})", file=sys.stderr)
+        return None
+
+    old = pd.read_csv(path, index_col=0, parse_dates=True) if os.path.exists(path) else pd.DataFrame(columns=["adv", "dec", "unch"])
+    days = pd.bdate_range(end=dt.date.today(), periods=10)
+    todo = [d for d in days if d not in old.index]
+    rows = {}
+    for d in todo:
+        try:
+            df = stock.get_market_ohlcv_by_ticker(d.strftime("%Y%m%d"), market="KOSPI")
+            if df is None or df.empty or "등락률" not in df:
+                continue
+            chg = df["등락률"]
+            if (df["거래량"] == 0).all():   # 휴장일
+                continue
+            rows[d] = {"adv": int((chg > 0).sum()), "dec": int((chg < 0).sum()), "unch": int((chg == 0).sum())}
+        except Exception as e:  # noqa: BLE001
+            print(f"[경고] KRX {d.date()} 실패: {type(e).__name__} {str(e)[:120]}", file=sys.stderr)
+            break
+    if rows:
+        new = pd.concat([old, pd.DataFrame.from_dict(rows, orient="index")]).sort_index()
+        new.index.name = "date"
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        new.to_csv(path)
+        print(f"KRX 등락 종목수: {len(rows)}일 추가 → 누적 {len(new)}일")
+        return new
+    return old if len(old) else None
+
+
+def load_kr_adr(cfg: dict) -> pd.DataFrame | None:
+    path = _p(cfg["output"]["kr_adr_csv"])
+    return pd.read_csv(path, index_col=0, parse_dates=True) if os.path.exists(path) else None
+
+
 def fetch_market(cfg: dict) -> pd.DataFrame:
     src = cfg["sources"]
     start = src["start"]
     y = fetch_yahoo(src["yahoo"], start)
     f = fetch_fred(src["fred"], start)
     m = y.join(f, how="outer").sort_index()
+    e = fetch_ecos(cfg, start)
+    if not e.empty:
+        m = m.join(e, how="outer").sort_index()
     # 미국 거래일 기준으로 정렬: S&P500 이 있는 날만 남기고 나머지는 앞값 채움
     m = m[m["spx"].notna()]
     m = m.ffill()
@@ -218,6 +311,8 @@ def demo_market(days: int = 3000, seed: int = 7) -> pd.DataFrame:
     spy = spx / 10
     rsp = spy * 0.4 * np.exp(np.cumsum(rng.normal(0, 0.003, n)))
     t10y2y = np.cumsum(rng.normal(0, 0.02, n)) * 0.3 + 0.5
+    kr_govt3 = np.clip(3.0 + np.cumsum(rng.normal(0, 0.02, n)) * 0.2, 0.5, 6)
+    kr_corp_aa = kr_govt3 + np.clip(0.6 + 60 * rv + rng.normal(0, 0.03, n), 0.3, 5)
     move = np.clip(70 + 3000 * rv + rng.normal(0, 4, n), 45, 200)
 
     kospi = 2500 * np.exp(np.cumsum(rets * 1.1 + rng.normal(0, 0.006, n)))
@@ -233,5 +328,5 @@ def demo_market(days: int = 3000, seed: int = 7) -> pd.DataFrame:
         "spx": spx, "ndx": ndx, "vix": vix, "move": move, "hy": hy, "baa10y": baa10y,
         "kospi": kospi, "kosdaq": kosdaq, "usdkrw": usdkrw,
         "tnx": tnx, "dxy": dxy, "gold": gold, "oil": oil,
-        "spy": spy, "rsp": rsp, "t10y2y": t10y2y,
+        "spy": spy, "rsp": rsp, "t10y2y": t10y2y, "kr_govt3": kr_govt3, "kr_corp_aa": kr_corp_aa,
     }, index=idx)

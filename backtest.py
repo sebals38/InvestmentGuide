@@ -147,6 +147,40 @@ def breadth_report(res: pd.DataFrame, cfg: dict) -> dict:
     return {"base": base, "n": n, "p": float(fut[sel].mean()) if n else float("nan"), "episodes": eps, "lead": lead}
 
 
+def kr_aux_report(res: pd.DataFrame, cfg: dict) -> dict | None:
+    """국내 참고 지표가 앞섰는지: 경고 뒤 lead 일 안 (a) 충격 국면 (b) KOSPI −10% 확률 vs 기저율"""
+    ka = cfg.get("korea_aux")
+    if not ka or "kospi" not in res:
+        return None
+    lead = int(ka.get("lead_days", 60))
+    drop = float(ka.get("kospi_drop_pct", 10)) / 100
+    idx = res.index
+    is_shock = (res["regime"].to_numpy() == "shock").astype(int)
+    fut_shock = pd.Series(is_shock[::-1], index=idx[::-1]).rolling(lead, min_periods=1).max()[::-1].shift(-1).fillna(0)
+    k = res["kospi"]
+    fut_min = k[::-1].rolling(lead, min_periods=1).min()[::-1].shift(-1)
+    fut_drop = ((fut_min / k - 1) <= -drop).astype(float)
+    ok = res["regime"] != "shock"
+    out = {"lead": lead, "drop": drop, "base_shock": float(fut_shock[ok].mean()), "base_drop": float(fut_drop[ok].mean()), "flags": {}}
+    for col, name in (("kr_breadth_warn", "국내 시장 폭"), ("kr_spread_warn", "국내 신용 스프레드")):
+        if col not in res or res[col].isna().all():
+            continue
+        sel = ok & (res[col] == 1)
+        n = int(sel.sum())
+        cov = float(res[col].notna().mean())
+        out["flags"][name] = (n, float(fut_shock[sel].mean()) if n else float("nan"),
+                              float(fut_drop[sel].mean()) if n else float("nan"), cov)
+    if "kr_spread" in res and res["kr_spread"].notna().any():
+        eps = []
+        for ep in cfg["backtest"]["episodes"]:
+            pk = _nearest(idx, ep["peak"])
+            pos = idx.get_loc(pk)
+            win = res.iloc[max(0, pos - lead):pos + 1]
+            eps.append((ep["name"], int(win["kr_breadth_warn"].max()), int(win["kr_spread_warn"].max()) if win["kr_spread_warn"].notna().any() else None))
+        out["episodes"] = eps
+    return out
+
+
 def plot(res: pd.DataFrame, cfg: dict, path: str):
     import matplotlib
     matplotlib.use("Agg")
@@ -257,6 +291,22 @@ def write_markdown(eps: list, ff: dict, res: pd.DataFrame, cfg: dict, path: str,
         L.append(f"- 기저율 {bg['base']*100:.0f}% vs 경고 켜진 날({bg['n']}일) {bg['p']*100:.0f}%"
                  if bg["n"] else f"- 경고 켜진 날 없음 (기저율 {bg['base']*100:.0f}%)")
         L.append("- 기저율과 비슷하면 행동 근거가 아님. 2026-09 검증: 신용 엇갈림·금리 역전은 차이 없어 제거, 시장 폭만 참고로 유지.\n")
+    kg = ff.get("kr_aux")
+    if kg:
+        L.append("## 점검 6. 국내 참고 지표는 앞섰나\n")
+        L.append(f"- 기저율: 충격이 아닌 날 중 {kg['lead']}일 안에 미국 충격 **{kg['base_shock']*100:.0f}%**, KOSPI −{kg['drop']*100:.0f}% **{kg['base_drop']*100:.0f}%**")
+        for name, (n, ps, pdrop, cov) in kg["flags"].items():
+            if n:
+                L.append(f"- {name} 경고 켜진 날 ({n}일, 데이터 커버리지 {cov*100:.0f}%): 미국 충격 **{ps*100:.0f}%**, KOSPI −{kg['drop']*100:.0f}% **{pdrop*100:.0f}%**")
+            else:
+                L.append(f"- {name}: 경고 켜진 날 없음")
+        if "episodes" in kg:
+            L.append("")
+            L.append(f"| 위기 | 고점 전 {kg['lead']}일 국내 폭 | 국내 신용 |")
+            L.append("|---|---|---|")
+            for e in kg["episodes"]:
+                L.append(f"| {e[0]} | {'켜짐' if e[1] else '–'} | {'켜짐' if e[2] else ('–' if e[2] == 0 else '데이터 없음')} |")
+        L.append("- 읽는 법: 기저율보다 뚜렷이 높아야 의미. ADR 은 과거 데이터가 없어 누적 후(1년 뒤) 검증.\n")
     L.append("## 충격 판정 전체 목록\n")
     L.append("| 시작 | 끝 | 일수 |")
     L.append("|---|---|---|")
@@ -300,6 +350,7 @@ def main(argv=None):
         eps.append(episode_report(res, ep, cfg))
     ff = flipflop_report(res, cfg)
     ff["breadth"] = breadth_report(res, cfg)
+    ff["kr_aux"] = kr_aux_report(res, cfg)
 
     png = _p(cfg["output"]["backtest_png"])
     md = _p(cfg["output"]["backtest_md"])

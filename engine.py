@@ -134,6 +134,32 @@ def build_features(m: pd.DataFrame, cfg: dict) -> pd.DataFrame:
     else:
         f["t10y2y"] = np.nan
 
+    # 국내 참고 지표 (참고 전용)
+    ka = cfg.get("korea_aux")
+    f["kr_breadth_warn"] = 0.0
+    f["kq_ks_chg"] = np.nan
+    f["kr_spread"] = np.nan
+    f["kr_spread_warn"] = 0.0
+    f["kr_spread_widen"] = np.nan
+    f["kr_adr"] = np.nan
+    if ka:
+        if "kospi" in m and "kosdaq" in m:
+            b = ka["breadth"]
+            near = (m["kospi"] >= m["kospi"].rolling(252, min_periods=60).max() * (1 - float(b["near_high_pct"]) / 100))
+            ratio = (m["kosdaq"] / m["kospi"]).ffill()
+            chg = ratio.pct_change(int(b["ratio_days"]))
+            f["kq_ks_chg"] = chg
+            f["kr_breadth_warn"] = (near & (chg <= -float(b["ratio_drop_pct"]) / 100)).astype(float)
+        if "kr_corp_aa" in m and "kr_govt3" in m:
+            c = ka["credit"]
+            sp = (m["kr_corp_aa"] - m["kr_govt3"]).ffill()
+            f["kr_spread"] = sp
+            f["kr_spread_widen"] = sp.diff(int(c["widen_days"]))
+            f["kr_spread_warn"] = ((sp >= float(c["warn_pp"])) | (f["kr_spread_widen"] >= float(c["widen_pp"]))).astype(float)
+        if "kr_adv" in m and "kr_dec" in m:
+            w = int(ka["adr"]["window"])
+            f["kr_adr"] = m["kr_adv"].rolling(w).sum() / m["kr_dec"].rolling(w).sum().replace(0, np.nan) * 100
+
     return f
 
 
@@ -318,6 +344,14 @@ def snapshot(res: pd.DataFrame, cfg: dict) -> dict:
             "warn": flag(r["breadth_warn"]),
             "near_high": flag(r["near_high"]),
             "rsp_spy_chg": float(r["rsp_spy_chg"]) if pd.notna(r["rsp_spy_chg"]) else None,
+        },
+        "kr_aux": {
+            "kq_ks_chg": float(r["kq_ks_chg"]) if pd.notna(r["kq_ks_chg"]) else None,
+            "breadth_warn": flag(r["kr_breadth_warn"]),
+            "spread": float(r["kr_spread"]) if pd.notna(r["kr_spread"]) else None,
+            "spread_widen": float(r["kr_spread_widen"]) if pd.notna(r["kr_spread_widen"]) else None,
+            "spread_warn": flag(r["kr_spread_warn"]),
+            "adr": float(r["kr_adr"]) if pd.notna(r["kr_adr"]) else None,
         },
         "aux": {
             "move": float(r["move"]) if pd.notna(r["move"]) else None,

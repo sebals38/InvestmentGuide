@@ -205,11 +205,29 @@ def render_html(snap: dict, res: pd.DataFrame, m: pd.DataFrame, cfg: dict, sourc
 <div class="note">목표 노출 {snap['exposure_us']:.0f}% = {eq * snap['exposure_us'] / 100:,.0f} / 포지션당 상한 {rules['position_weight_cap_pct']}% = {eq * rules['position_weight_cap_pct'] / 100:,.0f}</div></div>
 </div>"""
 
+    def fmt(v, f):
+        return "–" if v is None else f.format(v)
+
     bd = snap["breadth"]
     breadth_html = (f'<div class="card" style="margin-bottom:12px;font-size:13px"><b>시장 폭</b> — 동일가중/시총가중 S&amp;P {cfg.get("breadth",{}).get("ratio_days",60)}일 변화 '
                     f'<b class="{_cls(bd["rsp_spy_chg"])}">{_pct(bd["rsp_spy_chg"])}</b>, S&amp;P500 고점 근처: {"예" if bd["near_high"] else "아니오"}'
                     f'{" · 소수 종목이 지수를 떠받치는 중" if bd["warn"] else ""}'
                     f'<span style="color:var(--muted)"> (참고 전용. 2004~2026 검증에서 앞서는 힘 미미 — 행동 근거 아님)</span></div>')
+    ka = snap["kr_aux"]
+    kac = cfg.get("korea_aux", {})
+    adr_txt = "–" if ka["adr"] is None else f"{ka['adr']:.0f}"
+    adr_note = ("수집 누적 중 (20일 이상 쌓이면 표시)" if ka["adr"] is None else
+                ("과매도 (반등 여지)" if ka["adr"] < kac.get("adr", {}).get("oversold", 75) else
+                 "과열" if ka["adr"] > kac.get("adr", {}).get("overheated", 120) else "중립"))
+    sp_txt = "–" if ka["spread"] is None else f"{ka['spread']:.2f}%p"
+    sp_note = ("ECOS 키 없음 — 미수집" if ka["spread"] is None else
+               f"20일 변화 {fmt(ka['spread_widen'], '{:+.2f}%p')} · " + ("경고 수준" if ka["spread_warn"] else "정상"))
+    kr_aux_html = f"""<div class="grid3">
+<div class="card kpi"><div class="lbl">국내 시장 폭 대용 (KOSDAQ/KOSPI {kac.get('breadth',{}).get('ratio_days',60)}일)</div><div class="val {_cls(ka['kq_ks_chg'])}">{_pct(ka['kq_ks_chg'])}</div>
+<div class="note">{"KOSPI 고점 근처인데 소형·성장주 이탈" if ka['breadth_warn'] else "특이 없음"}</div></div>
+<div class="card kpi"><div class="lbl">등락비율 ADR ({kac.get('adr',{}).get('window',20)}일)</div><div class="val">{adr_txt}</div><div class="note">{adr_note}</div></div>
+<div class="card kpi"><div class="lbl">국내 신용 스프레드 (회사채 AA- − 국고채 3y)</div><div class="val">{sp_txt}</div><div class="note">{sp_note}</div></div>
+</div>"""
     changed = "" if snap["regime"] == snap["regime_prev"] else f' <span class="pill warn">전일 {engine.REGIME_KO[snap["regime_prev"]]} → 변경</span>'
     freeze_html = ""
     if snap["freeze"]:
@@ -245,14 +263,17 @@ def render_html(snap: dict, res: pd.DataFrame, m: pd.DataFrame, cfg: dict, sourc
 <h2>4. 국내 조정 · 보조 지표 (참고, 국면을 바꾸지 않음)</h2>
 {kr_html}
 
-<h2>5. 참고 패널</h2>
+<h2>5. 국내 참고 지표 (참고 전용 — 국면·노출을 바꾸지 않음)</h2>
+{kr_aux_html}
+
+<h2>6. 참고 패널</h2>
 {breadth_html}
 <table><thead><tr><th>지표</th><th>종가</th><th>1일</th><th>20일</th><th>vs 200일선</th></tr></thead><tbody>{ref_rows}</tbody></table>
 
-<h2>6. 최근 30일 판정</h2>
+<h2>7. 최근 30일 판정</h2>
 <table><thead><tr><th>날짜</th><th style="text-align:left">국면</th><th>노출(미)</th><th>노출(국내)</th><th>점수 raw/5일</th><th>VIX</th><th>신용</th><th>S&amp;P vs 200일</th><th>안정화</th></tr></thead><tbody>{hist_rows}</tbody></table>
 
-<h2>7. 1층 생존 규칙 (고정)</h2>
+<h2>8. 1층 생존 규칙 (고정)</h2>
 <div class="card"><ul class="rules">
 <li>포지션별 고정 손절 <b>{rules['position_stop_pct']}%</b> — 충격이라고 넓히지 않는다</li>
 <li>단일 포지션 비중 상한 <b>{rules['position_weight_cap_pct']}%</b> → 실수 1건의 손실 = 계좌의 1~1.5%</li>
@@ -277,6 +298,10 @@ def main(argv=None):
 
     cfg = load_cfg()
     m, source = datamod.load_market(cfg, demo=args.demo, refresh=not args.no_refresh)
+    if not args.demo:
+        adr = datamod.update_kr_adr(cfg) if not args.no_refresh else datamod.load_kr_adr(cfg)
+        if adr is not None and len(adr):
+            m = m.join(adr.rename(columns={"adv": "kr_adv", "dec": "kr_dec"})[["kr_adv", "kr_dec"]], how="left")
     res = engine.run(m, cfg)
     snap = engine.snapshot(res, cfg)
 
