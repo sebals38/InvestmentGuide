@@ -1,3 +1,4 @@
 ﻿date,regime,freeze,exposure_us,exposure_kr,trading_bucket,score_raw,score_s,spx_dist,vix,hy,move,stab_n,ladder_days,kr_below_ma,fx_warn,source
 2026-09-11,uptrend,0,65.0,65.0,20.0,0,0.0,6.9,15.84,1.51,82.2,3,0,0,0,live
 2026-09-14,uptrend,0,65.0,65.0,20.0,0,0.0,6.32,17.1,1.5,83.9,3,0,0,0,live
+2026-09-15,uptrend,0,65.0,65.0,20.0,0,0.0,5.78,17.2,1.47,83.7,3,0,0,0,live
