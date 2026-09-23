@@ -27,6 +27,29 @@ def _p(path: str) -> str:
     return path if os.path.isabs(path) else os.path.join(HERE, path)
 
 
+def _load_dotenv(fname: str = ".env") -> None:
+    """프로젝트 폴더의 .env (KEY=값 한 줄씩) 를 환경변수로 읽는다. 추가 패키지 없음.
+    이미 설정된 환경변수(GitHub Secrets 등)는 덮어쓰지 않는다."""
+    f = _p(fname)
+    if not os.path.exists(f):
+        return
+    with open(f, encoding="utf-8-sig") as fh:          # 메모장 BOM 허용
+        for line in fh:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            k = k.strip().removeprefix("export ").strip()
+            v = v.strip()
+            if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
+                v = v[1:-1]
+            if k and not os.environ.get(k):
+                os.environ[k] = v
+
+
+_load_dotenv()
+
+
 # ─────────────────────────── 원천 수집 ───────────────────────────
 def fetch_yahoo(tickers: dict, start: str) -> pd.DataFrame:
     import yfinance as yf
@@ -97,7 +120,7 @@ def fetch_fred(series: dict, start: str) -> pd.DataFrame:
     if key:
         print(f"FRED API 키 감지: {key[:4]}…{key[-2:]} ({len(key)}자)")
     else:
-        print("[안내] FRED_API_KEY 가 없습니다 (환경변수 또는 fred_api_key.txt). 공개 경로는 최근 3년만 줄 수 있습니다.",
+        print("[안내] FRED_API_KEY 가 없습니다 (.env 또는 환경변수). 공개 경로는 최근 3년만 줄 수 있습니다.",
               file=sys.stderr)
     out = {}
     for sid_key, sid in series.items():
@@ -128,19 +151,13 @@ def fetch_fred(series: dict, start: str) -> pd.DataFrame:
 ECOS_URL = "https://ecos.bok.or.kr/api/StatisticSearch/{key}/json/kr/1/100000/{stat}/D/{start}/{end}/{item}"
 
 
-def _read_key(env: str, fname: str) -> str:
-    key = os.environ.get(env, "").strip().strip('"')
-    if not key:
-        f = _p(fname)
-        if os.path.exists(f):
-            with open(f, encoding="utf-8") as fh:
-                key = fh.read().strip().strip('"')
-    return key
+def _read_key(env: str) -> str:
+    """환경변수에서 키를 읽는다. 로컬은 .env, GitHub Actions 는 Secrets 가 채운다."""
+    return os.environ.get(env, "").strip().strip('"')
 
 
 def _fred_key() -> str:
-    """환경변수 FRED_API_KEY, 없으면 프로젝트 폴더의 fred_api_key.txt (git 제외)."""
-    return _read_key("FRED_API_KEY", "fred_api_key.txt")
+    return _read_key("FRED_API_KEY")
 
 
 def fetch_ecos(cfg: dict, start: str) -> pd.DataFrame:
@@ -148,9 +165,9 @@ def fetch_ecos(cfg: dict, start: str) -> pd.DataFrame:
     ec = cfg["sources"].get("ecos")
     if not ec:
         return pd.DataFrame()
-    key = _read_key("ECOS_API_KEY", "ecos_api_key.txt")
+    key = _read_key("ECOS_API_KEY")
     if not key:
-        print("[안내] ECOS_API_KEY 없음 → 국내 신용 스프레드 생략 (ecos_api_key.txt 에 키를 넣으면 수집)", file=sys.stderr)
+        print("[안내] ECOS_API_KEY 없음 → 국내 신용 스프레드 생략 (.env 에 ECOS_API_KEY 를 넣으면 수집)", file=sys.stderr)
         return pd.DataFrame()
     out = {}
     for col in ("kr_govt3", "kr_corp_aa"):
@@ -180,14 +197,9 @@ def update_kr_adr(cfg: dict) -> pd.DataFrame | None:
     if not cfg["sources"].get("krx_adr"):
         return None
     path = _p(cfg["output"]["kr_adr_csv"])
-    # KRX 로그인 (pykrx 최신 버전은 KRX 정보데이터시스템 계정 필요)
+    # KRX 로그인 (pykrx 최신 버전은 KRX 정보데이터시스템 계정 필요) — .env 의 KRX_ID / KRX_PW
     if not os.environ.get("KRX_ID"):
-        f = _p("krx_login.txt")
-        if os.path.exists(f):
-            with open(f, encoding="utf-8") as fh:
-                parts = [x.strip() for x in fh.read().splitlines() if x.strip()]
-            if len(parts) >= 2:
-                os.environ["KRX_ID"], os.environ["KRX_PW"] = parts[0], parts[1]
+        print("[안내] KRX_ID 없음 → 로그인 없이 시도 (.env 에 KRX_ID / KRX_PW)", file=sys.stderr)
     try:
         from pykrx import stock  # noqa: WPS433
     except Exception as e:  # noqa: BLE001

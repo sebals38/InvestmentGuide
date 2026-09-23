@@ -34,8 +34,14 @@ python backtest.py                    # 3) 과거 전체 점검 → report/backt
 
 ### FRED API 키 (필수)
 
-https://fred.stlouisfed.org/docs/api/api_key.html 에서 무료 발급 → 프로젝트 폴더에 `fred_api_key.txt` 로 저장(한 줄, git 제외)
-하거나 환경변수 `FRED_API_KEY` 로 설정.
+https://fred.stlouisfed.org/docs/api/api_key.html 에서 무료 발급.
+
+**키는 모두 프로젝트 폴더의 `.env` 한 파일에 둡니다** (git 제외). `.env.example` 을 복사해 `.env` 로 만들고 값을 채우세요:
+```
+copy .env.example .env
+notepad .env
+```
+형식: `이름=값` 한 줄씩, 따옴표·공백 없이.
 
 GitHub Actions 에서는 저장소 **Settings → Secrets and variables → Actions → New repository secret** 에
 `FRED_API_KEY` 를 넣으면 워크플로가 자동으로 씁니다.
@@ -43,8 +49,8 @@ GitHub Actions 에서는 저장소 **Settings → Secrets and variables → Acti
 ### 국내 참고 지표용 키 (선택)
 
 - **ECOS (한국은행, 국내 신용 스프레드)**: https://ecos.bok.or.kr → 로그인 → 마이페이지 → 인증키 신청 (무료, 즉시) →
-  `ecos_api_key.txt` 에 한 줄로 저장. 첫 실행 로그에 항목명(예: '회사채(3년, AA-)')이 찍히니 config.yaml 의 코드가 맞는지 확인.
-- **KRX (등락 종목수 ADR)**: https://data.krx.co.kr 회원가입(무료) → `krx_login.txt` 에 첫 줄 아이디, 둘째 줄 비밀번호.
+  `.env` 의 `ECOS_API_KEY=` 에 입력. 첫 실행 로그에 항목명(예: '회사채(3년, AA-)')이 찍히니 config.yaml 의 코드가 맞는지 확인.
+- **KRX (등락 종목수 ADR)**: https://data.krx.co.kr 회원가입(무료) → `.env` 의 `KRX_ID=` / `KRX_PW=` 에 입력.
   둘 다 없어도 대시보드는 돌아가고 해당 칸만 '미수집'으로 표시됩니다. GitHub Actions 에서는 Secrets 에 `ECOS_API_KEY`, `KRX_ID`, `KRX_PW`.
 
 ## 2. GitHub 자동화 켜기 (한 번만)
