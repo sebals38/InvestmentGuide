@@ -4,7 +4,9 @@
 1층 원칙: 손실 중에는 규칙을 바꾸지 않는다. 변경은 최소 30일 간격.
 
 ## v0.8.1 — 2026-10-11 (수집 복구 — 규칙 변경 없음)
-- 증상: 9/23 이후 GitHub Actions 매일 실행은 되지만 "수집 실패 1" → 9/22 캐시로만 그림. 로컬 PC 에서는 정상 → Yahoo 가 GitHub 서버 IP 를 차단
+- 증상: 9/23 이후 GitHub Actions 매일 실행은 되지만 "수집 실패 1" → 9/22 캐시로만 그림. 로컬 PC 에서는 정상
+- 원인(Actions 로그로 확정): GitHub Secrets 의 FRED_API_KEY 에 20자짜리 다른 키(ECOS 형식)가 들어가 있어 FRED API 400 → 키 없는 graph-csv 경로는 GitHub 러너에서 타임아웃 → 전체 캐시. v0.7.1(9/23) 키 통합 때 Secrets 를 잘못 넣은 것. Yahoo 는 Actions 에서도 정상이었음
+- 조치: Secrets 4개(FRED/ECOS/KRX_ID/KRX_PW)를 .env 값으로 재등록. data.py 에 FRED 키 형식 경고(32자 소문자 아니면), 키 없는 FRED 경로 2개 추가(txt, download), 타임아웃 60초
 - data.py: Yahoo 실패 시 FRED 시세(SP500, VIXCLS, NASDAQ100, DGS10, DEXKOUS — `sources.fred_prices`)로 대체, 그것도 실패하면 Stooq(`sources.stooq`, 봇 차단으로 불안정). 받지 못한 열·과거 구간은 캐시 값으로 보충(새 값 우선)하고 경고 출력
 - 한 소스 실패가 전체를 캐시로 떨어뜨리지 않음. history.csv 의 source 열에 `live(fred)` / `live(stooq)` 로 기록
 - check_sources.py 추가: Yahoo/Stooq 열별 수신 여부 점검
