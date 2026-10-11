@@ -149,7 +149,7 @@ def _fred_api(sid: str, start: str, key: str) -> pd.Series:
 
 
 def _fred_download(sid: str) -> pd.Series:
-    r = requests.get(FRED_DL.format(sid=sid), headers=UA, timeout=30)
+    r = requests.get(FRED_DL.format(sid=sid), headers=UA, timeout=60)
     r.raise_for_status()
     df = pd.read_csv(io.StringIO(r.text))
     if df.shape[1] < 2:
@@ -158,7 +158,7 @@ def _fred_download(sid: str) -> pd.Series:
 
 
 def _fred_txt(sid: str) -> pd.Series:
-    r = requests.get(FRED_TXT.format(sid=sid), headers=UA, timeout=30)
+    r = requests.get(FRED_TXT.format(sid=sid), headers=UA, timeout=60)
     r.raise_for_status()
     lines = r.text.splitlines()
     hdr = [k for k, ln in enumerate(lines) if ln.strip().upper().startswith("DATE")]
@@ -170,7 +170,7 @@ def _fred_txt(sid: str) -> pd.Series:
 
 def _fred_csv(sid: str, start: str) -> pd.Series:
     url = FRED_CSV.format(sid=sid, start=start, end=dt.date.today().isoformat())
-    r = requests.get(url, headers=UA, timeout=30)
+    r = requests.get(url, headers=UA, timeout=60)
     r.raise_for_status()
     df = pd.read_csv(io.StringIO(r.text))
     return _to_series(df.iloc[:, 0], df.iloc[:, 1])
@@ -181,6 +181,9 @@ def fetch_fred(series: dict, start: str) -> pd.DataFrame:
     key = _fred_key()
     if key:
         print(f"FRED API 키 감지: {key[:4]}…{key[-2:]} ({len(key)}자)")
+        if len(key) != 32 or not key.islower():
+            print(f"[경고] FRED 키 형식이 이상합니다 ({len(key)}자). FRED 키는 32자 소문자 16진수 — "
+                  f".env 또는 GitHub Secrets 의 FRED_API_KEY 가 다른 키(ECOS 등)와 바뀐 것 아닌지 확인", file=sys.stderr)
     else:
         print("[안내] FRED_API_KEY 가 없습니다 (.env 또는 환경변수). 공개 경로는 최근 3년만 줄 수 있습니다.",
               file=sys.stderr)
@@ -189,7 +192,9 @@ def fetch_fred(series: dict, start: str) -> pd.DataFrame:
         attempts = []
         if key:
             attempts.append(("api", lambda: _fred_api(sid, start, key)))
-        attempts += [("graph-csv", lambda: _fred_csv(sid, start))]
+        attempts += [("graph-csv", lambda: _fred_csv(sid, start)),
+                     ("txt", lambda: _fred_txt(sid)),
+                     ("download", lambda: _fred_download(sid))]
         best, best_name = None, None
         for name, fn in attempts:
             try:
