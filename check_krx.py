@@ -1,4 +1,4 @@
-"""
+r"""
 check_krx.py — KRX 로그인 진단 (1회 시도, 비밀번호는 출력하지 않음)
 사용:  .venv\Scripts\python.exe check_krx.py
 KRX 서버가 돌려준 오류 코드/메시지를 그대로 보여준다.

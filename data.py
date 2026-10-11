@@ -67,11 +67,73 @@ def fetch_yahoo(tickers: dict, start: str) -> pd.DataFrame:
     return close
 
 
+# ─────────────────────────── Stooq (Yahoo 대체, 키 없음) ───────────────────────────
+STOOQ_CSV = "https://stooq.com/q/d/l/?s={sym}&i=d"
+
+
+def fetch_stooq(tickers: dict, start: str, stooq_map: dict | None) -> pd.DataFrame:
+    """Yahoo 가 막혔을 때 Stooq 에서 종목별로 받는다. 매핑이 없거나 실패한 열은 비워 둔다 (캐시로 보충)."""
+    stooq_map = stooq_map or {}
+    out, missing = {}, []
+    for key in tickers:
+        sym = stooq_map.get(key)
+        if not sym:
+            missing.append(key)
+            continue
+        try:
+            r = requests.get(STOOQ_CSV.format(sym=sym), headers=UA, timeout=30)
+            r.raise_for_status()
+            df = pd.read_csv(io.StringIO(r.text))
+            if "Close" not in df or df.empty:
+                raise RuntimeError("응답 형식 아님: " + r.text[:80].replace("\n", " "))
+            s = _to_series(df["Date"], df["Close"])
+            s = s[s.index >= pd.Timestamp(start)]
+            if s.empty:
+                raise RuntimeError("행 없음")
+            out[key] = s
+            print(f"Stooq {key}={sym}: {len(s)}행, ~{s.index.max().date()}")
+        except Exception as e:  # noqa: BLE001
+            print(f"[경고] Stooq {key}={sym} 실패: {type(e).__name__} {str(e)[:120]}", file=sys.stderr)
+            missing.append(key)
+    if "spx" not in out or "vix" not in out:
+        raise RuntimeError("Stooq 에서 핵심 열(spx, vix)을 받지 못함")
+    if missing:
+        print(f"[안내] Stooq 에 없는 열 → 캐시 값으로 보충: {', '.join(missing)}", file=sys.stderr)
+    return pd.DataFrame(out)
+
+
+def fetch_fred_prices(tickers: dict, start: str, fred_map: dict | None) -> pd.DataFrame:
+    """Yahoo 대체 2: FRED 에 있는 시세(SP500, VIXCLS 등)만 받는다. 나머지 열은 캐시로 보충."""
+    fred_map = {k: v for k, v in (fred_map or {}).items() if k in tickers and v}
+    if not fred_map:
+        raise RuntimeError("sources.fred_prices 매핑이 없음")
+    df = fetch_fred(fred_map, start)
+    if "spx" not in df or "vix" not in df:
+        raise RuntimeError("FRED 에서 핵심 열(spx, vix)을 받지 못함")
+    missing = [k for k in tickers if k not in df]
+    if missing:
+        print(f"[안내] FRED 에 없는 시세 열 → 캐시 값으로 보충: {', '.join(missing)}", file=sys.stderr)
+    return df
+
+
+def fetch_prices(src: dict, start: str) -> tuple[pd.DataFrame, str]:
+    """시세: Yahoo → 실패하면 FRED 시세 → 그래도 실패하면 Stooq. (DataFrame, 출처이름)"""
+    try:
+        return fetch_yahoo(src["yahoo"], start), "yahoo"
+    except Exception as e:  # noqa: BLE001
+        print(f"[경고] Yahoo 실패 → FRED 시세로 대체 시도: {type(e).__name__} {str(e)[:160]}", file=sys.stderr)
+    try:
+        return fetch_fred_prices(src["yahoo"], start, src.get("fred_prices")), "fred"
+    except Exception as e:  # noqa: BLE001
+        print(f"[경고] FRED 시세 실패 → Stooq 로 대체 시도: {type(e).__name__} {str(e)[:160]}", file=sys.stderr)
+    return fetch_stooq(src["yahoo"], start, src.get("stooq")), "stooq"
+
+
 FRED_TXT = "https://fred.stlouisfed.org/data/{sid}.txt"                                  # 전체 이력 (텍스트)
 FRED_DL = "https://fred.stlouisfed.org/series/{sid}/downloaddata/{sid}.csv"               # '데이터 다운로드' 링크
 FRED_API = ("https://api.stlouisfed.org/fred/series/observations?series_id={sid}&api_key={key}"
             "&file_type=json&observation_start={start}")                                    # 무료 API 키 필요
-UA = {"User-Agent": "Mozilla/5.0 (InvestmentGuide dashboard; personal use)"}
+UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36"}
 
 
 def _to_series(dates, values) -> pd.Series:
@@ -238,20 +300,29 @@ def load_kr_adr(cfg: dict) -> pd.DataFrame | None:
     return pd.read_csv(path, index_col=0, parse_dates=True) if os.path.exists(path) else None
 
 
-def fetch_market(cfg: dict) -> pd.DataFrame:
+def fetch_market(cfg: dict, cache: pd.DataFrame | None = None) -> tuple[pd.DataFrame, str]:
+    """(DataFrame, 출처). 출처 = 'live' | 'live(stooq)' 등. 받지 못한 열은 캐시로 보충한다."""
     src = cfg["sources"]
     start = src["start"]
-    y = fetch_yahoo(src["yahoo"], start)
+    y, price_src = fetch_prices(src, start)
     f = fetch_fred(src["fred"], start)
     m = y.join(f, how="outer").sort_index()
     e = fetch_ecos(cfg, start)
     if not e.empty:
         m = m.join(e, how="outer").sort_index()
+    # 이번에 못 받은 열(예: FRED 에 없는 KOSPI)이나 과거 구간(FRED SP500 은 최근 10년만)은 캐시로 보충.
+    # 새로 받은 값이 우선, 비어 있는 곳만 캐시로 채운다.
+    if cache is not None:
+        missing_cols = [c for c in cache.columns if c not in m.columns]
+        m = m.combine_first(cache).sort_index()
+        if missing_cols:
+            print(f"[안내] 캐시로 보충한 열(최신값 아닐 수 있음): {', '.join(missing_cols)}", file=sys.stderr)
     # 미국 거래일 기준으로 정렬: S&P500 이 있는 날만 남기고 나머지는 앞값 채움
     m = m[m["spx"].notna()]
     m = m.ffill()
     check_coverage(m, core_cols(cfg))
-    return m
+    source = "live" if price_src == "yahoo" else f"live({price_src})"
+    return m, source
 
 
 def check_coverage(m: pd.DataFrame, cols=("spx", "vix", "baa10y"), verbose: bool = True) -> list[str]:
@@ -282,19 +353,19 @@ def load_market(cfg: dict, demo: bool = False, refresh: bool = True) -> tuple[pd
         return demo_market(), "demo"
 
     cache = _p(cfg["output"]["market_cache"])
+    cached = pd.read_csv(cache, index_col=0, parse_dates=True) if os.path.exists(cache) else None
     if refresh:
         try:
-            m = fetch_market(cfg)
+            m, source = fetch_market(cfg, cached)
             os.makedirs(os.path.dirname(cache), exist_ok=True)
             m.to_csv(cache, float_format="%.4f")
-            return m, "live"
+            return m, source
         except Exception as e:  # noqa: BLE001
             print(f"[경고] 실시간 수집 실패 → 캐시 사용: {e}", file=sys.stderr)
 
-    if os.path.exists(cache):
-        m = pd.read_csv(cache, index_col=0, parse_dates=True)
-        check_coverage(m, core_cols(cfg))
-        return m, "cache"
+    if cached is not None:
+        check_coverage(cached, core_cols(cfg))
+        return cached, "cache"
     raise RuntimeError("실시간 수집도 실패했고 캐시(data/market.csv)도 없습니다.")
 
 

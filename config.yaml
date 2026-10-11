@@ -120,6 +120,26 @@ sources:
     oil:    "CL=F"
     rsp:    "RSP"                # S&P500 동일가중 ETF (시장 폭 측정용, 2003~)
     spy:    "SPY"                # S&P500 시총가중 ETF
+  fred_prices:                   # Yahoo 가 막혔을 때(GitHub Actions 서버 IP 차단) 1순위 대체: FRED 에 있는 시세
+    spx:    "SP500"              # S&P500 (최근 10년) — 과거 구간은 캐시로 보충
+    vix:    "VIXCLS"             # VIX 종가 (1990~)
+    ndx:    "NASDAQ100"          # 나스닥100 (최근 10년)
+    tnx:    "DGS10"              # 미 10년물 (%) — ^TNX 와 같은 단위
+    usdkrw: "DEXKOUS"            # 원/달러 — KRW=X 와 같은 단위
+    # 여기 없는 열(kospi, kosdaq, move, dxy, gold, oil, rsp, spy)은 캐시 값으로 보충됨 (참고 지표라 판정엔 영향 없음)
+  stooq:                         # 2순위 대체 (키 없음). 봇 차단으로 HTML 이 올 수 있음 → check_sources.py 로 확인
+    spx:    "^spx"
+    ndx:    "^ndx"
+    vix:    "^vix"
+    kospi:  "^kospi"
+    kosdaq: "^kosdaq"
+    usdkrw: "usdkrw"
+    tnx:    "10usy.b"            # 미 10년물 수익률
+    dxy:    "dx.f"               # 달러 인덱스 선물
+    gold:   "gc.f"
+    oil:    "cl.f"
+    rsp:    "rsp.us"
+    spy:    "spy.us"
   fred:                          # FRED_API_KEY (fred_api_key.txt) 필요
     baa10y: "BAA10Y"             # Moody's Baa − 10y Treasury (%p), 1986~ 전체
     hy: "BAMLH0A0HYM2"           # ICE BofA US High Yield OAS (%), 최근 3년만 (참고 패널용)

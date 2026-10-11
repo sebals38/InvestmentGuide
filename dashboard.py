@@ -119,7 +119,8 @@ def render_html(snap: dict, res: pd.DataFrame, m: pd.DataFrame, cfg: dict, sourc
     rules = cfg["rules"]
     color = engine.REGIME_COLOR[snap["regime"]]
     now = dt.datetime.now().strftime("%Y-%m-%d %H:%M")
-    src_label = {"live": "Yahoo Finance + FRED", "cache": "캐시(data/market.csv) — 수집 실패", "demo": "합성 데모 데이터"}[source]
+    src_label = {"live": "Yahoo Finance + FRED", "live(fred)": "FRED 시세(Yahoo 대체) + FRED", "live(stooq)": "Stooq(Yahoo 대체) + FRED",
+                 "cache": "캐시(data/market.csv) — 수집 실패", "demo": "합성 데모 데이터"}.get(source, source)
 
     def pill(on, on_txt="경고", off_txt="정상", on_cls="on", off_cls="off"):
         return f'<span class="pill {on_cls if on else off_cls}">{on_txt if on else off_txt}</span>'
