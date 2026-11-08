@@ -110,7 +110,8 @@ def sector_table(px: pd.DataFrame, cfg: dict, days: int = 20) -> dict:
             p = px[t].dropna()
             if len(p) <= days:
                 continue
-            lst.append({"name": it["name"], "chg": float(p.iloc[-1] / p.iloc[-1 - days] - 1)})
+            lst.append({"name": it["name"], "chg": float(p.iloc[-1] / p.iloc[-1 - days] - 1),
+                        "chg5": float(p.iloc[-1] / p.iloc[-6] - 1)})
         out[grp] = sorted(lst, key=lambda x: x["chg"], reverse=True)
     return out
 

@@ -199,7 +199,7 @@ stocks:
     - {name: "동진쎄미켐",         ticker: "005290.KQ", market: KR}
     - {name: "파크시스템스",       ticker: "140860.KQ", market: KR}
 
-# ── 섹터 강약 (구글 '글로벌 마켓 대시보드' 섹터 탭 대체) — 20일 수익률 상위·하위 3개만 표시
+# ── 섹터 강약 (구글 '글로벌 마켓 대시보드' 섹터 탭 대체) — 20일 상위·하위 3개 + "전체 보기"(접힘). 시세 없는 티커는 자동으로 빠짐
 sectors:
   미국:
     - {name: "기술",       ticker: "XLK"}
@@ -214,6 +214,12 @@ sectors:
     - {name: "부동산",     ticker: "XLRE"}
     - {name: "통신",       ticker: "XLC"}
     - {name: "반도체",     ticker: "SOXX"}
+    - {name: "바이오",     ticker: "XBI"}
+    - {name: "방산·항공",  ticker: "ITA"}
+    - {name: "소프트웨어", ticker: "IGV"}
+    - {name: "지역은행",   ticker: "KRE"}
+    - {name: "주택건설",   ticker: "XHB"}
+    - {name: "소형주",     ticker: "IWM"}
   한국:
     - {name: "반도체",     ticker: "091160.KS"}
     - {name: "은행",       ticker: "091170.KS"}
@@ -225,6 +231,11 @@ sectors:
     - {name: "증권",       ticker: "102970.KS"}
     - {name: "운송",       ticker: "140710.KS"}
     - {name: "미디어·엔터", ticker: "266360.KS"}
+    - {name: "2차전지",    ticker: "305540.KS"}
+    - {name: "바이오",     ticker: "244580.KS"}
+    - {name: "방산",       ticker: "449450.KS"}
+    - {name: "조선",       ticker: "494670.KS"}
+    - {name: "소프트웨어", ticker: "157490.KS"}
 
 # 바로가기 (페이지 맨 아래 '자세히' 안)
 links:

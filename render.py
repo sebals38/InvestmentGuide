@@ -51,6 +51,7 @@ tr:last-child td{border-bottom:0}
 .sec .row{display:flex;justify-content:space-between;font-size:14px;padding:2px 0}
 .strip{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:14px;margin-top:10px}
 details{margin-top:28px}summary{cursor:pointer;font-weight:600;font-size:15px;padding:8px 0}
+details.more{margin-top:8px}details.more summary{font-size:13px;color:var(--blue);padding:4px 0}details.more th,details.more td{padding:4px 6px;font-size:13px}
 details h3{font-size:14px;margin:18px 0 8px}
 ul{margin:0;padding-left:18px}li{margin:3px 0}
 a{color:var(--blue)}
@@ -174,7 +175,11 @@ def render(snap: dict, res: pd.DataFrame, m: pd.DataFrame, cfg: dict, source: st
         top, bot = lst[:3], lst[-3:][::-1]
         rows = "".join(f'<div class="row"><span>▲ {x["name"]}</span><span class="{_cls(x["chg"])}">{_pct(x["chg"])}</span></div>' for x in top)
         rows += "".join(f'<div class="row"><span>▼ {x["name"]}</span><span class="{_cls(x["chg"])}">{_pct(x["chg"])}</span></div>' for x in bot)
-        sec_html += f'<div class="card sec"><h3>{grp} 섹터 · 20일 강한 3 / 약한 3</h3>{rows}</div>'
+        full = "".join(f'<tr><td>{x["name"]}</td><td class="{_cls(x["chg5"])}">{_pct(x["chg5"])}</td>'
+                       f'<td class="{_cls(x["chg"])}">{_pct(x["chg"])}</td></tr>' for x in lst)
+        sec_html += (f'<div class="card sec"><h3>{grp} 섹터 · 20일 강한 3 / 약한 3</h3>{rows}'
+                     f'<details class="more"><summary>전체 {len(lst)}개 보기</summary>'
+                     f'<table><thead><tr><th>섹터</th><th>5일</th><th>20일</th></tr></thead><tbody>{full}</tbody></table></details></div>')
 
     def last(k, f="{:,.0f}"):
         if k not in m.columns or m[k].dropna().empty:
