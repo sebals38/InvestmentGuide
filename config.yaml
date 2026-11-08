@@ -5,7 +5,7 @@
 #  - ※ 손실 중에는 규칙을 바꾸지 않는다 (1층 원칙). 변경은 CHANGELOG.md 에 기록.
 # ─────────────────────────────────────────────────────────────
 
-version: "0.7"
+version: "0.9"
 
 # ── 1층: 생존 규칙 (국면과 무관하게 고정) ────────────────────
 rules:
@@ -170,6 +170,69 @@ reference:
   - {key: gold,   name: "금 선물"}
   - {key: oil,    name: "WTI 원유"}
 
+# ── 주요 종목: 권장 최대 비중 (구글 '켈리공식_자동계산_시트 v2' 대체) ──
+#  권장 최대 비중 = 켈리 × (변동성 높음 1/4, 그 외 1/2), 1층 종목당 상한(rules.position_weight_cap_pct)으로 자름
+#  티커: 미국 그대로, 코스피 = 코드.KS, 코스닥 = 코드.KQ  (종목을 바꾸려면 아래 목록만 고치면 됨)
+stocks:
+  years: 3                       # 변동성·베타 계산 기간 (년)
+  benchmark: {KR: "^KS11", US: "^GSPC"}
+  market_premium_pct: {KR: 6, US: 5}   # 시장 위험프리미엄 (시트와 같은 값)
+  mid_vol_pct: 25                # 연 변동성 이 이상이면 '중간'
+  high_vol_pct: 45               # 이 이상이면 '높음' → 쿼터 켈리
+  list:
+    - {name: "KODEX 200",        ticker: "069500.KS", market: KR}
+    - {name: "KODEX 코스닥150",  ticker: "229200.KS", market: KR}
+    - {name: "S&P 500",          ticker: "^GSPC",     market: US}
+    - {name: "나스닥 100",        ticker: "^NDX",      market: US}
+    - {name: "금 (GLD)",          ticker: "GLD",       market: US}
+    - {name: "은 (SIVR)",         ticker: "SIVR",      market: US}
+    - {name: "구리 (CPER)",       ticker: "CPER",      market: US}
+    - {name: "원유 (USO)",        ticker: "USO",       market: US}
+    - {name: "원익IPS",           ticker: "240810.KQ", market: KR}
+    - {name: "주성엔지니어링",     ticker: "036930.KQ", market: KR}
+    - {name: "유진테크",           ticker: "084370.KQ", market: KR}
+    - {name: "HPSP",              ticker: "403870.KQ", market: KR}
+    - {name: "넥스틴",             ticker: "348210.KQ", market: KR}
+    - {name: "피에스케이",         ticker: "319660.KQ", market: KR}
+    - {name: "파인세미텍",         ticker: "036810.KQ", market: KR}
+    - {name: "에스앤에스텍",       ticker: "101490.KQ", market: KR}
+    - {name: "동진쎄미켐",         ticker: "005290.KQ", market: KR}
+    - {name: "파크시스템스",       ticker: "140860.KQ", market: KR}
+
+# ── 섹터 강약 (구글 '글로벌 마켓 대시보드' 섹터 탭 대체) — 20일 수익률 상위·하위 3개만 표시
+sectors:
+  미국:
+    - {name: "기술",       ticker: "XLK"}
+    - {name: "금융",       ticker: "XLF"}
+    - {name: "헬스케어",   ticker: "XLV"}
+    - {name: "에너지",     ticker: "XLE"}
+    - {name: "산업재",     ticker: "XLI"}
+    - {name: "경기소비재", ticker: "XLY"}
+    - {name: "필수소비재", ticker: "XLP"}
+    - {name: "유틸리티",   ticker: "XLU"}
+    - {name: "소재",       ticker: "XLB"}
+    - {name: "부동산",     ticker: "XLRE"}
+    - {name: "통신",       ticker: "XLC"}
+    - {name: "반도체",     ticker: "SOXX"}
+  한국:
+    - {name: "반도체",     ticker: "091160.KS"}
+    - {name: "은행",       ticker: "091170.KS"}
+    - {name: "자동차",     ticker: "091180.KS"}
+    - {name: "철강",       ticker: "117680.KS"}
+    - {name: "건설",       ticker: "117700.KS"}
+    - {name: "에너지화학", ticker: "117460.KS"}
+    - {name: "헬스케어",   ticker: "266420.KS"}
+    - {name: "증권",       ticker: "102970.KS"}
+    - {name: "운송",       ticker: "140710.KS"}
+    - {name: "미디어·엔터", ticker: "266360.KS"}
+
+# 바로가기 (페이지 맨 아래 '자세히' 안)
+links:
+  - {name: "네이버 증권 리서치",   url: "https://finance.naver.com/research/"}
+  - {name: "경제 일정 (인베스팅)",  url: "https://kr.investing.com/economic-calendar/"}
+  - {name: "실적 일정 (인베스팅)",  url: "https://kr.investing.com/earnings-calendar/"}
+  - {name: "공포·탐욕 지수 (CNN)", url: "https://edition.cnn.com/markets/fear-and-greed"}
+
 # ── 백테스트: 과거 위기 구간 (수익률 최적화가 아니라 "상식적으로 움직였나" 점검용)
 backtest:
   start: "2004-01-01"
@@ -192,3 +255,4 @@ output:
   kr_adr_csv: "data/kr_adr.csv"         # 국내 상승/하락 종목수 누적 (매일 1행)
   backtest_md: "report/backtest.md"
   backtest_png: "report/backtest.png"
+  stocks_cache: "data/stocks.csv"        # 주요 종목·섹터 ETF 종가 캐시
